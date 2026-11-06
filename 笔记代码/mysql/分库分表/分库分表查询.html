@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分库分表查询（多维路由）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-k { color: var(--pink); font-weight: 700; }
+  .sub .no-b { color: var(--blue); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .k { color: var(--pink); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>分库分表查询（多维路由）</h1>
+    <p class="sub">
+      分片键只有 <code style="background:rgba(255,255,255,.07);padding:1px 6px;border-radius:5px;font-size:12px;color:#cdd5ff">buyer_id</code> 一个，其他维度怎么查？
+      <span class="no-g">① 买家查</span>走分片键；<span class="no-k">② 订单号查</span>用基因法；
+      <span class="no-b">③ 卖家查</span>冗余双写一份；<span class="no-p">④ 运营多维查</span>交给搜索平台。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="740" viewBox="0 0 900 740" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="tb-arrO" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#f6a04d"/>
+    </marker>
+    <marker id="tb-arrG" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#3ecf8e"/>
+    </marker>
+    <marker id="tb-arrK" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#e06a9d"/>
+    </marker>
+    <marker id="tb-arrB" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#5b8def"/>
+    </marker>
+    <marker id="tb-arrP" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#a06ee1"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="740" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="30" text-anchor="middle" font-size="11" letter-spacing="3" fill="#8b91b8">查询入口</text>
+  <line x1="330" y1="26" x2="400" y2="26" stroke="#343b6e"/>
+  <line x1="500" y1="26" x2="570" y2="26" stroke="#343b6e"/>
+
+  <rect x="40" y="46" width="180" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="62" cy="69" r="4.5" fill="#3ecf8e"/>
+  <text x="74" y="73" font-size="13" fill="#dfe4fa">买家 App 查订单</text>
+  <rect x="240" y="46" width="180" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="262" cy="69" r="4.5" fill="#e06a9d"/>
+  <text x="274" y="73" font-size="13" fill="#dfe4fa">客服按订单号查</text>
+  <rect x="440" y="46" width="180" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="462" cy="69" r="4.5" fill="#5b8def"/>
+  <text x="474" y="73" font-size="13" fill="#dfe4fa">卖家后台查订单</text>
+  <rect x="640" y="46" width="180" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="662" cy="69" r="4.5" fill="#a06ee1"/>
+  <text x="674" y="73" font-size="13" fill="#dfe4fa">运营多维查询</text>
+
+  <text x="130" y="110" text-anchor="middle" font-size="11" font-weight="600" fill="#3ecf8e">① 买家查</text>
+  <text x="130" y="126" text-anchor="middle" font-size="9.5" fill="#8b91b8">buyer_id % 2</text>
+  <text x="330" y="110" text-anchor="middle" font-size="11" font-weight="600" fill="#e06a9d">② 订单号查</text>
+  <text x="330" y="126" text-anchor="middle" font-size="9.5" fill="#8b91b8">解析 id 基因</text>
+  <text x="530" y="110" text-anchor="middle" font-size="11" font-weight="600" fill="#5b8def">③ 卖家查</text>
+  <text x="530" y="126" text-anchor="middle" font-size="9.5" fill="#8b91b8">shop_id % 2</text>
+
+  <rect x="330" y="150" width="240" height="52" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.5"/>
+  <text x="450" y="174" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">下单 · 订单服务</text>
+  <text x="450" y="192" text-anchor="middle" font-size="10" fill="#f6a04d">订单号 = 雪花 ID + 买家基因</text>
+
+  <line x1="450" y1="202" x2="450" y2="232" stroke="#3d4478" stroke-width="2"/>
+  <rect x="350" y="236" width="200" height="44" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="450" y="262" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">订单 MQ（双写）</text>
+
+  <path d="M 420,280 C 350,332 320,376 305,424" fill="none" stroke="#f6a04d" stroke-width="2" marker-end="url(#tb-arrO)"/>
+  <text x="305" y="362" text-anchor="middle" font-size="10.5" font-weight="600" fill="#f6a04d">写</text>
+  <path d="M 480,280 C 550,332 580,376 595,424" fill="none" stroke="#f6a04d" stroke-width="2" marker-end="url(#tb-arrO)"/>
+  <text x="598" y="362" text-anchor="middle" font-size="10.5" font-weight="600" fill="#f6a04d">写</text>
+
+  <path d="M 130,92 C 128,220 160,330 185,424" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#tb-arrG)"/>
+  <path d="M 330,92 C 320,200 292,320 280,424" fill="none" stroke="#e06a9d" stroke-width="2" marker-end="url(#tb-arrK)"/>
+  <path d="M 530,92 C 600,160 625,300 618,424" fill="none" stroke="#5b8def" stroke-width="2" marker-end="url(#tb-arrB)"/>
+  <path d="M 730,92 C 810,160 838,300 838,470 L 838,600 C 838,624 830,642 822,646" fill="none" stroke="#a06ee1" stroke-width="2" marker-end="url(#tb-arrP)"/>
+  <text x="860" y="330" text-anchor="middle" font-size="11" font-weight="600" fill="#a06ee1" transform="rotate(90 860 330)">④ 运营查 → ES</text>
+
+  <rect x="80" y="430" width="340" height="150" rx="14" fill="#12173a" stroke="#343b6e" stroke-dasharray="6 4"/>
+  <text x="250" y="455" text-anchor="middle" font-size="12" font-weight="600" fill="#dfe4fa">买家库 · 按 buyer_id % 2 分片</text>
+  <rect x="110" y="468" width="130" height="84" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="175" y="496" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">分片 0</text>
+  <text x="175" y="516" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">buyer_id%2=0</text>
+  <rect x="252" y="468" width="130" height="84" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="317" y="496" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">分片 1</text>
+  <text x="317" y="516" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">buyer_id%2=1</text>
+  <text x="250" y="570" text-anchor="middle" font-size="10" fill="#8b91b8">订单号基因 → 指向同一片</text>
+
+  <rect x="480" y="430" width="340" height="150" rx="14" fill="#12173a" stroke="#343b6e" stroke-dasharray="6 4"/>
+  <text x="650" y="455" text-anchor="middle" font-size="12" font-weight="600" fill="#dfe4fa">卖家库 · 按 shop_id % 2 分片</text>
+  <rect x="510" y="468" width="130" height="84" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="575" y="496" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">分片 0</text>
+  <text x="575" y="516" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">shop_id%2=0</text>
+  <rect x="652" y="468" width="130" height="84" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="717" y="496" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">分片 1</text>
+  <text x="717" y="516" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">shop_id%2=1</text>
+  <text x="650" y="570" text-anchor="middle" font-size="10" fill="#8b91b8">同一份数据 · 按卖家维度重排</text>
+
+  <line x1="250" y1="580" x2="250" y2="610" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#tb-arrP)"/>
+  <line x1="650" y1="580" x2="650" y2="610" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#tb-arrP)"/>
+  <text x="450" y="602" text-anchor="middle" font-size="10" fill="#8b91b8">binlog 同步（Canal / MQ）</text>
+
+  <rect x="80" y="615" width="740" height="64" rx="12" fill="#171b3a" stroke="#a06ee1" stroke-opacity="0.5"/>
+  <text x="450" y="643" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">搜索平台（Elasticsearch）</text>
+  <text x="450" y="663" text-anchor="middle" font-size="10.5" fill="#8b91b8">多维组合查询 · 模糊搜索 —— 不打交易库</text>
+
+  <g>
+    <circle r="7" fill="#8b93ff" opacity="0.3"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 450,202 L 450,232"/><animate attributeName="opacity" values="0;0.3;0.3;0" keyTimes="0;0.15;0.85;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#aab1ff"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 450,202 L 450,232"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.6s" begin="0.4s" repeatCount="indefinite" path="M 420,280 C 350,332 320,376 305,424"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#ffc069"><animateMotion dur="2.6s" begin="0.4s" repeatCount="indefinite" path="M 420,280 C 350,332 320,376 305,424"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.6s" begin="1.2s" repeatCount="indefinite" path="M 480,280 C 550,332 580,376 595,424"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.6s" begin="1.2s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#ffc069"><animateMotion dur="2.6s" begin="1.2s" repeatCount="indefinite" path="M 480,280 C 550,332 580,376 595,424"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.6s" begin="1.2s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#3ecf8e" opacity="0.3"><animateMotion dur="4s" begin="0.8s" repeatCount="indefinite" path="M 130,92 C 128,220 160,330 185,424"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#7fe3b0"><animateMotion dur="4s" begin="0.8s" repeatCount="indefinite" path="M 130,92 C 128,220 160,330 185,424"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#e06a9d" opacity="0.3"><animateMotion dur="4s" begin="1.6s" repeatCount="indefinite" path="M 330,92 C 320,200 292,320 280,424"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="1.6s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#f0a0c2"><animateMotion dur="4s" begin="1.6s" repeatCount="indefinite" path="M 330,92 C 320,200 292,320 280,424"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="1.6s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#5b8def" opacity="0.3"><animateMotion dur="4s" begin="2.4s" repeatCount="indefinite" path="M 530,92 C 600,160 625,300 618,424"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="2.4s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#8fb3f7"><animateMotion dur="4s" begin="2.4s" repeatCount="indefinite" path="M 530,92 C 600,160 625,300 618,424"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="4s" begin="2.4s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#a06ee1" opacity="0.3"><animateMotion dur="5s" begin="1s" repeatCount="indefinite" path="M 730,92 C 810,160 838,300 838,470 L 838,600 C 838,624 830,642 822,646"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="1s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#c4a5f5"><animateMotion dur="5s" begin="1s" repeatCount="indefinite" path="M 730,92 C 810,160 838,300 838,470 L 838,600 C 838,624 830,642 822,646"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="1s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="6" fill="#a06ee1" opacity="0.3"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite" path="M 250,580 L 250,610"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.1;0.9;1" dur="2s" begin="0.5s" repeatCount="indefinite"/></circle>
+    <circle r="2.5" fill="#c4a5f5"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite" path="M 250,580 L 250,610"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2s" begin="0.5s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="6" fill="#a06ee1" opacity="0.3"><animateMotion dur="2s" begin="1.3s" repeatCount="indefinite" path="M 650,580 L 650,610"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.1;0.9;1" dur="2s" begin="1.3s" repeatCount="indefinite"/></circle>
+    <circle r="2.5" fill="#c4a5f5"><animateMotion dur="2s" begin="1.3s" repeatCount="indefinite" path="M 650,580 L 650,610"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2s" begin="1.3s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="95" y="706" width="10" height="10" rx="2" fill="#f6a04d"/>
+  <text x="110" y="715" font-size="10.5" fill="#cdd5ff">下单双写</text>
+  <rect x="192" y="706" width="10" height="10" rx="2" fill="#3ecf8e"/>
+  <text x="207" y="715" font-size="10.5" fill="#cdd5ff">① 买家查</text>
+  <rect x="288" y="706" width="10" height="10" rx="2" fill="#e06a9d"/>
+  <text x="303" y="715" font-size="10.5" fill="#cdd5ff">② 订单号查</text>
+  <rect x="400" y="706" width="10" height="10" rx="2" fill="#5b8def"/>
+  <text x="415" y="715" font-size="10.5" fill="#cdd5ff">③ 卖家查</text>
+  <rect x="502" y="706" width="10" height="10" rx="2" fill="#a06ee1"/>
+  <text x="517" y="715" font-size="10.5" fill="#cdd5ff">④ 运营查 → ES</text>
+  <line x1="630" y1="711" x2="652" y2="711" stroke="#a06ee1" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="658" y="715" font-size="10.5" fill="#cdd5ff">binlog 同步</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>数据流（淘宝订单方案）</h2>
+    <ul>
+      <li><strong>下单写</strong>：订单号 = 雪花 ID + <strong>买家基因</strong>（<code>buyer_id % 2</code> 编进 id 低位）→ 订单 MQ → <span class="o">双写买家库、卖家库</span></li>
+      <li><span class="g">① 买家查</span>：WHERE 带 <code>buyer_id</code> → <code>% 2</code> 算分片 → 买家库单片场</li>
+      <li><span class="k">② 订单号查</span>：解析 id 低位基因 → 买家库<strong>同一片</strong>，不需要知道 buyer_id</li>
+      <li><span class="b">③ 卖家查</span>：WHERE 带 <code>shop_id</code> → 卖家库单片场（同一份数据，按卖家维度重新分片布局）</li>
+      <li><span class="p">④ 运营多维查</span>：binlog 同步到搜索平台（ES），任意字段组合查询，<strong>不打交易库</strong></li>
+      <li><strong>取舍逻辑</strong>：高频主路径 → 冗余副本一次到位；低频多维 → 搜索兜底；系统生成的 id → 基因法零成本路由</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>非分片键查询 · 方案全景</h2>
+    <table>
+      <tr><th>方案</th><th>原理</th><th>适用</th><th>代价</th></tr>
+      <tr>
+        <td>分片键查询</td>
+        <td>WHERE 带分片键，中间件 <code>% N</code> 直接路由单片场</td>
+        <td>一切高频查询的<strong>前提</strong>（买家查订单）</td>
+        <td>无 —— 分片键选对了就是免费的</td>
+      </tr>
+      <tr>
+        <td>基因法</td>
+        <td>生成 id 时把分片键基因编进低位，<code>id % N</code> 直接算分片</td>
+        <td>系统生成的值：订单号、流水号（客服查单）</td>
+        <td>ID 生成器自研；基因位数锁死分片数上限</td>
+      </tr>
+      <tr>
+        <td>冗余双写</td>
+        <td>同一份数据按另一维度再分片存一份（卖家库）</td>
+        <td>另一条<strong>高频主路径</strong>（卖家查订单）</td>
+        <td>双倍存储 + MQ 双写最终一致性</td>
+      </tr>
+      <tr>
+        <td>映射表</td>
+        <td>维护「字段值 → 分片键」映射（DB + Redis 缓存）</td>
+        <td>高基数点查字段：手机号、邮箱查单</td>
+        <td>多一跳 KV；映射一致性维护</td>
+      </tr>
+      <tr>
+        <td>广播归并</td>
+        <td>中间件把 SQL 广播到所有分片，结果内存归并</td>
+        <td><strong>低频</strong>、小结果集（后台偶尔查一次）</td>
+        <td>分片越多越慢；深分页归并内存爆炸</td>
+      </tr>
+      <tr>
+        <td>ES 异构</td>
+        <td>binlog → Canal/MQ → Elasticsearch</td>
+        <td>多维组合、模糊查询（运营/客服后台）</td>
+        <td>同步链路复杂度；秒级延迟</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">一句话选型：查询必带分片键是免费的，其他维度全是「花钱买路由」——能算（基因法）就不查（映射表），高频就冗余（双写），低频就凑合（广播），多维组合交给 ES。</div>
+
+  <p class="nav"><a href="../数据库架构/分库分表.html">← 分库分表（水平拆分）架构图</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
