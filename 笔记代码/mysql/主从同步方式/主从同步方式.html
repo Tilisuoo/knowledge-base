@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MySQL 主从复制的三种方式 · 动画图解</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: #1f2329;
+    background: #f7f8fa;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 64px; }
+  h1 { font-size: 26px; margin: 0 0 10px; }
+  .sub { color: #646a73; font-size: 14px; line-height: 1.8; margin: 0; }
+  section {
+    background: #fff;
+    border: 1px solid #ebedf0;
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 24px;
+  }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  .desc { color: #646a73; font-size: 13px; line-height: 1.8; margin: 0 0 14px; }
+  svg.diagram { display: block; width: 100%; height: auto; }
+  ul { margin: 14px 0 0; padding-left: 18px; color: #454a52; font-size: 13px; line-height: 1.9; }
+  .tip {
+    margin-top: 14px; font-size: 13px; line-height: 1.7;
+    padding: 10px 14px; border-radius: 8px;
+    background: #fff7e6; color: #ad6800; border: 1px solid #ffe7ba;
+  }
+  .tip.info { background: #e8f3ff; color: #175cd3; border-color: #b2ddff; }
+  .tip.ok { background: #e8f7f0; color: #067647; border-color: #a6f4c5; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  th, td { border: 1px solid #ebedf0; padding: 8px 10px; text-align: left; }
+  th { background: #f2f3f5; font-weight: 600; }
+  .footer { margin-top: 24px; color: #8f959e; font-size: 12px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MySQL 主从复制的三种方式</h1>
+  <p class="sub">
+    三种方式的本质区别在于「主库什么时候把成功返回给客户端」：不等从库（异步复制）→
+    等至少一个从库确认收到（半同步复制）→ 等组内多数派达成共识（MGR 组复制）。
+    下面三张动画时序图按时间顺序展示一次写请求的完整路径，光点流动即事件流向，循环播放。
+  </p>
+
+  <section>
+    <h2>1 · 异步复制（Async Replication）</h2>
+    <p class="desc">MySQL 默认方式。主库在本地提交事务后立刻响应客户端，binlog 的传输（橙色光点）在后台异步进行——主库从不等待从库。</p>
+    <svg class="diagram" xmlns="http://www.w3.org/2000/svg" width="680" height="366" viewBox="0 0 680 366">
+      <title>MySQL 异步复制时序图（动画）</title>
+      <defs>
+        <marker id="asy-ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#8f959e"/>
+        </marker>
+        <marker id="asy-ah-acc" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#3370ff"/>
+        </marker>
+        <marker id="asy-ah-o" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#fa8c16"/>
+        </marker>
+      </defs>
+
+      <line x1="75" y1="54" x2="75" y2="352" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="340" y1="54" x2="340" y2="352" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="590" y1="54" x2="590" y2="352" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+
+      <rect x="19" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="75" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">客户端</text>
+      <rect x="284" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#3370ff" stroke-width="1.6"/>
+      <text x="340" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">Master 主库</text>
+      <rect x="534" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="590" y="31" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">Slave 从库</text>
+      <text x="590" y="44" text-anchor="middle" font-size="10" fill="#8f959e">可多个</text>
+
+      <line x1="83" y1="96" x2="331" y2="96" stroke="#8f959e" stroke-width="1.5" marker-end="url(#asy-ah)"/>
+      <text x="207" y="84" text-anchor="middle" font-size="12" fill="#646a73">① 写请求（DML）</text>
+
+      <rect x="255" y="122" width="170" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="340" y="140" text-anchor="middle" font-size="12" fill="#1f2329">② 写 binlog + 引擎提交</text>
+
+      <line x1="332" y1="176" x2="84" y2="176" stroke="#3370ff" stroke-width="2" marker-end="url(#asy-ah-acc)"/>
+      <text x="207" y="164" text-anchor="middle" font-size="12" font-weight="600" fill="#3370ff">③ 立即返回 OK（不等从库）</text>
+
+      <line x1="30" y1="204" x2="213" y2="204" stroke="#dee0e3" stroke-dasharray="3 4"/>
+      <line x1="467" y1="204" x2="650" y2="204" stroke="#dee0e3" stroke-dasharray="3 4"/>
+      <rect x="217" y="194" width="246" height="20" rx="10" fill="#ffffff" stroke="#dee0e3"/>
+      <text x="340" y="208" text-anchor="middle" font-size="11" fill="#8f959e">此后的复制过程对客户端透明，异步进行</text>
+
+      <line x1="348" y1="240" x2="581" y2="240" stroke="#fa8c16" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#asy-ah-o)"/>
+      <text x="465" y="228" text-anchor="middle" font-size="12" fill="#646a73">④ binlog dump 推送事件（异步）</text>
+
+      <rect x="510" y="266" width="160" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="590" y="284" text-anchor="middle" font-size="12" fill="#1f2329">⑤ IO 线程写 relay log</text>
+
+      <rect x="515" y="306" width="150" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="590" y="324" text-anchor="middle" font-size="12" fill="#1f2329">⑥ SQL 线程回放应用</text>
+
+      <circle cx="340" cy="96" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.08;0.14;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.08;0.085;0.14;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="75" cy="176" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.28;0.34;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.28;0.285;0.34;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="590" cy="240" r="5" fill="none" stroke="#fa8c16" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.52;0.58;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.52;0.525;0.58;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="8s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.08;1" path="M 83,96 L 331,96"/>
+        <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.01;0.19;0.21;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="8s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.20;0.28;1" path="M 331,176 L 83,176"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.20;0.205;0.30;0.33;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#fa8c16" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="8s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.44;0.52;1" path="M 348,240 L 581,240"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.44;0.445;0.64;0.68;1" dur="8s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <ul>
+      <li>主库提交即返回，复制与客户端完全解耦</li>
+      <li>dump 线程把 binlog 事件推送给从库</li>
+      <li>从库 IO 线程写 relay log，SQL 线程回放</li>
+      <li>主从延迟期间，读从库会拿到旧数据</li>
+    </ul>
+    <div class="tip">核心权衡：性能最好；但主库宕机时，尚未传到从库的事务会丢失。</div>
+  </section>
+
+  <section>
+    <h2>2 · 半同步复制（Semi-sync Replication）</h2>
+    <p class="desc">主库在响应客户端之前，先等至少一个从库确认「binlog 已收到」（蓝色区域为等待窗口）。MySQL 5.7+ 默认为 AFTER_SYNC：先等 ACK 再引擎提交。</p>
+    <svg class="diagram" xmlns="http://www.w3.org/2000/svg" width="680" height="398" viewBox="0 0 680 398">
+      <title>MySQL 半同步复制时序图（动画）</title>
+      <defs>
+        <marker id="semi-ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#8f959e"/>
+        </marker>
+        <marker id="semi-ah-acc" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#3370ff"/>
+        </marker>
+      </defs>
+
+      <rect x="150" y="126" width="498" height="180" rx="8" fill="#3370ff" fill-opacity="0.05" stroke="#3370ff" stroke-opacity="0.35" stroke-dasharray="4 3">
+        <animate attributeName="fill-opacity" values="0.05;0.1;0.1;0.05;0.05" keyTimes="0;0.09;0.40;0.50;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </rect>
+      <text x="162" y="296" font-size="11" fill="#3370ff">主库等待窗口：收到 ACK 前一直阻塞（超时降级为异步）</text>
+
+      <line x1="75" y1="54" x2="75" y2="384" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="340" y1="54" x2="340" y2="384" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="590" y1="54" x2="590" y2="384" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+
+      <rect x="19" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="75" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">客户端</text>
+      <rect x="284" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#3370ff" stroke-width="1.6"/>
+      <text x="340" y="38" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">Master 主库</text>
+      <rect x="534" y="14" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="590" y="31" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">Slave 从库</text>
+      <text x="590" y="44" text-anchor="middle" font-size="10" fill="#8f959e">至少 1 个</text>
+
+      <line x1="83" y1="96" x2="331" y2="96" stroke="#8f959e" stroke-width="1.5" marker-end="url(#semi-ah)"/>
+      <text x="207" y="84" text-anchor="middle" font-size="12" fill="#646a73">① 写请求</text>
+
+      <rect x="260" y="136" width="160" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="340" y="154" text-anchor="middle" font-size="12" fill="#1f2329">② 写 binlog 并刷盘</text>
+
+      <line x1="348" y1="190" x2="581" y2="190" stroke="#8f959e" stroke-width="1.5" marker-end="url(#semi-ah)"/>
+      <text x="465" y="178" text-anchor="middle" font-size="12" fill="#646a73">③ 推送 binlog 事件</text>
+
+      <rect x="505" y="216" width="170" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="590" y="234" text-anchor="middle" font-size="12" fill="#1f2329">④ 写 relay log 并刷盘</text>
+
+      <line x1="582" y1="270" x2="349" y2="270" stroke="#3370ff" stroke-width="2" marker-end="url(#semi-ah-acc)"/>
+      <text x="465" y="258" text-anchor="middle" font-size="12" font-weight="600" fill="#3370ff">⑤ ACK 确认（不必已回放）</text>
+
+      <rect x="240" y="312" width="200" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="340" y="330" text-anchor="middle" font-size="12" fill="#1f2329">⑥ 引擎提交（AFTER_SYNC）</text>
+
+      <line x1="332" y1="366" x2="84" y2="366" stroke="#3370ff" stroke-width="2" marker-end="url(#semi-ah-acc)"/>
+      <text x="207" y="354" text-anchor="middle" font-size="12" font-weight="600" fill="#3370ff">⑦ 返回 OK</text>
+
+      <circle cx="340" cy="96" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.07;0.12;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.07;0.075;0.12;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="590" cy="190" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.25;0.30;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.25;0.255;0.30;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="340" cy="270" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.41;0.46;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.41;0.415;0.46;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="75" cy="366" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.57;0.62;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.57;0.575;0.62;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="9s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.07;1" path="M 83,96 L 331,96"/>
+        <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.008;0.155;0.175;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="9s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.18;0.25;1" path="M 348,190 L 581,190"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.18;0.185;0.33;0.35;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="9s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.34;0.41;1" path="M 582,270 L 349,270"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.34;0.345;0.48;0.50;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="9s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.50;0.57;1" path="M 332,366 L 84,366"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.50;0.505;0.60;0.63;1" dur="9s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <ul>
+      <li>至少一个从库确认收到 binlog，主库才返回</li>
+      <li>只保证到达从库 relay log，不保证已回放</li>
+      <li>等待超时（默认 10s）无 ACK 自动降级为异步</li>
+      <li>AFTER_SYNC：先等 ACK 再引擎提交，避免幻读</li>
+    </ul>
+    <div class="tip info">核心权衡：数据不丢（binlog 已到从库）；代价是每次写多等一次从库 RTT。</div>
+  </section>
+
+  <section>
+    <h2>3 · 组复制（MGR，Group Replication）</h2>
+    <p class="desc">事务提交前，写集经 XCom（Paxos）在组内广播并通过认证；多数派（≥2/3）达成一致后，各节点按同一顺序提交——全组数据强一致。</p>
+    <svg class="diagram" xmlns="http://www.w3.org/2000/svg" width="760" height="392" viewBox="0 0 760 392">
+      <title>MySQL 组复制（MGR）时序图（动画）</title>
+      <defs>
+        <marker id="mgr-ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#8f959e"/>
+        </marker>
+        <marker id="mgr-ah-acc" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="#3370ff"/>
+        </marker>
+      </defs>
+
+      <rect x="196" y="6" width="538" height="366" rx="10" fill="none" stroke="#c9ccd1" stroke-dasharray="6 4"/>
+      <rect x="204" y="362" width="220" height="20" rx="10" fill="#ffffff" stroke="#dee0e3"/>
+      <text x="314" y="376" text-anchor="middle" font-size="11" fill="#8f959e">MGR 复制组 · 单主模式（多数派 2/3）</text>
+
+      <rect x="140" y="104" width="584" height="198" rx="8" fill="#3370ff" fill-opacity="0.05" stroke="#3370ff" stroke-opacity="0.35" stroke-dasharray="4 3">
+        <animate attributeName="fill-opacity" values="0.05;0.1;0.1;0.05;0.05" keyTimes="0;0.08;0.45;0.55;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </rect>
+      <text x="152" y="120" font-size="11" fill="#3370ff">客户端等待窗口：组内达成共识后才返回结果</text>
+
+      <line x1="75" y1="56" x2="75" y2="366" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="290" y1="56" x2="290" y2="366" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="500" y1="56" x2="500" y2="366" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+      <line x1="660" y1="56" x2="660" y2="366" stroke="#c9ccd1" stroke-dasharray="3 4"/>
+
+      <rect x="19" y="16" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="75" y="40" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">客户端</text>
+      <rect x="234" y="16" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#3370ff" stroke-width="1.6"/>
+      <text x="290" y="33" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">节点 A</text>
+      <text x="290" y="46" text-anchor="middle" font-size="10" fill="#3370ff">Primary 可写</text>
+      <rect x="444" y="16" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="500" y="33" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">节点 B</text>
+      <text x="500" y="46" text-anchor="middle" font-size="10" fill="#8f959e">成员</text>
+      <rect x="604" y="16" width="112" height="38" rx="8" fill="#f2f3f5" stroke="#dee0e3"/>
+      <text x="660" y="33" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2329">节点 C</text>
+      <text x="660" y="46" text-anchor="middle" font-size="10" fill="#8f959e">成员</text>
+
+      <line x1="83" y1="84" x2="281" y2="84" stroke="#8f959e" stroke-width="1.5" marker-end="url(#mgr-ah)"/>
+      <text x="182" y="72" text-anchor="middle" font-size="12" fill="#646a73">① 写请求</text>
+
+      <rect x="205" y="126" width="170" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="290" y="144" text-anchor="middle" font-size="12" fill="#1f2329">② 执行事务，提取写集</text>
+
+      <path d="M 298,186 L 492,186 L 651,186" fill="none" stroke="#8f959e" stroke-width="1.5" marker-mid="url(#mgr-ah)" marker-end="url(#mgr-ah)"/>
+      <text x="475" y="174" text-anchor="middle" font-size="12" fill="#646a73">③ 通过 XCom（Paxos）向全组广播写集</text>
+
+      <rect x="276" y="226" width="400" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="476" y="244" text-anchor="middle" font-size="12" fill="#1f2329">④ 认证 certify：写集冲突检测，多数派（≥2/3）达成共识</text>
+
+      <rect x="276" y="270" width="400" height="28" rx="6" fill="#f7f8fa" stroke="#dee0e3"/>
+      <text x="476" y="288" text-anchor="middle" font-size="12" fill="#1f2329">⑤ 各节点按全局同一顺序提交并应用</text>
+
+      <line x1="282" y1="330" x2="84" y2="330" stroke="#3370ff" stroke-width="2" marker-end="url(#mgr-ah-acc)"/>
+      <text x="182" y="318" text-anchor="middle" font-size="12" font-weight="600" fill="#3370ff">⑥ 返回 OK</text>
+
+      <circle cx="290" cy="84" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.06;0.11;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.06;0.065;0.11;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="500" cy="186" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.20;0.25;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.20;0.205;0.25;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="660" cy="186" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.20;0.25;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.20;0.205;0.25;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="290" cy="186" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.38;0.43;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.38;0.385;0.43;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="75" cy="330" r="5" fill="none" stroke="#3370ff" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="5;5;18;18" keyTimes="0;0.53;0.58;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0;0.55;0;0" keyTimes="0;0.53;0.535;0.58;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.06;1" path="M 83,84 L 281,84"/>
+        <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.006;0.135;0.155;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.15;0.20;1" path="M 298,186 L 492,186"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.15;0.155;0.30;0.32;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.15;0.20;1" path="M 298,186 L 651,186"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.15;0.155;0.30;0.32;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.33;0.38;1" path="M 492,186 L 298,186"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.33;0.335;0.455;0.475;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.33;0.38;1" path="M 651,186 L 298,186"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.33;0.335;0.455;0.475;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="5" fill="#3370ff" stroke="#ffffff" stroke-width="1.5" opacity="0">
+        <animateMotion dur="10s" begin="0s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.47;0.53;1" path="M 282,330 L 84,330"/>
+        <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.47;0.475;0.60;0.63;1" dur="10s" begin="0s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <ul>
+      <li>行级写集认证做冲突检测，多数派同意才提交</li>
+      <li>全组按全局同一顺序应用事务，数据强一致</li>
+      <li>单主模式（默认）仅 Primary 可写；多主模式全节点可写</li>
+      <li>节点故障自动选主；多数派不可用时整组只读</li>
+      <li>前置要求：InnoDB、表有主键、GTID、ROW 格式 binlog</li>
+    </ul>
+    <div class="tip ok">核心权衡：强一致 + 自动高可用；代价是写入延迟最高，且对表结构（主键、存储引擎）有约束。</div>
+  </section>
+
+  <section>
+    <h2>对比总结</h2>
+    <table>
+      <tr><th>维度</th><th>异步复制</th><th>半同步复制</th><th>MGR 组复制</th></tr>
+      <tr><td>主库返回时机</td><td>本地提交后立即返回</td><td>至少 1 个从库 ACK 后</td><td>组内多数派达成共识后</td></tr>
+      <tr><td>数据安全性</td><td>主库宕机可能丢数据</td><td>binlog 已到达从库，不丢</td><td>多数派持久化，强一致</td></tr>
+      <tr><td>写入延迟</td><td>最低</td><td>增加一次从库 RTT</td><td>增加组内共识开销，最高</td></tr>
+      <tr><td>从库是否应用数据</td><td>不保证</td><td>不保证（仅写 relay log）</td><td>认证通过后全组按序应用</td></tr>
+      <tr><td>高可用能力</td><td>手动切换</td><td>手动 / 借助 MHA、Orchestrator</td><td>自动选主、自动故障恢复</td></tr>
+      <tr><td>典型场景</td><td>读扩展、报表、可容忍少量丢失</td><td>核心业务库，要求数据不丢</td><td>金融级强一致高可用集群</td></tr>
+    </table>
+    <p class="sub" style="margin-top:12px"><strong>一句话选型：</strong>要性能选异步复制；要数据不丢选半同步复制；要强一致与自动高可用选 MGR。</p>
+  </section>
+
+  <p class="footer">单文件版：三张 SMIL 动画 SVG 已内嵌（无 JavaScript、无外部依赖），双击即可在浏览器中播放，可存放于任意目录。</p>
+</div>
+</body>
+</html>
