@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDN 缓存刷新（Purge）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-b { color: var(--blue); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CDN 缓存刷新（Purge）</h1>
+    <p class="sub">
+      源站内容更新后，分两步让全网节点换新：<span class="no-o">阶段一 · 下发失效指令</span>，把所有节点的旧缓存删掉；
+      <span class="no-b">阶段二 · 下次请求未命中</span>，<span class="no-p">回源拉取新内容</span>写入缓存，<span class="no-g">返回给用户</span>。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="720" viewBox="0 0 900 720" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="n-arrO" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#f6a04d"/>
+    </marker>
+    <marker id="n-arrB" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#5b8def"/>
+    </marker>
+    <marker id="n-arrP" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#a06ee1"/>
+    </marker>
+    <marker id="n-arrG" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#3ecf8e"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="720" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <rect x="262" y="24" width="376" height="24" rx="12" fill="#f6a04d" fill-opacity="0.08" stroke="#f6a04d" stroke-opacity="0.35"/>
+  <text x="450" y="40" text-anchor="middle" font-size="11.5" font-weight="600" fill="#f6a04d">阶段一 · 刷新下发：把旧缓存从全网节点删除</text>
+
+  <rect x="60" y="120" width="180" height="84" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="150" y="150" text-anchor="middle" font-size="13.5" font-weight="700" fill="#ffffff">运营 / 发布系统</text>
+  <text x="150" y="172" text-anchor="middle" font-size="10" fill="#8b91b8">源站内容已更新</text>
+  <text x="150" y="189" text-anchor="middle" font-size="10" font-weight="600" fill="#f6a04d">提交 URL 刷新</text>
+
+  <rect x="340" y="120" width="200" height="84" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="440" y="150" text-anchor="middle" font-size="13.5" font-weight="700" fill="#ffffff">CDN 刷新中心</text>
+  <text x="440" y="172" text-anchor="middle" font-size="10" fill="#8b91b8">控制台 / OpenAPI 提交</text>
+  <text x="440" y="189" text-anchor="middle" font-size="10" fill="#8b91b8">校验并分发失效指令</text>
+
+  <line x1="242" y1="162" x2="334" y2="162" stroke="#f6a04d" stroke-width="2" marker-end="url(#n-arrO)"/>
+  <text x="288" y="148" text-anchor="middle" font-size="11" font-weight="600" fill="#f6a04d">① 提交刷新</text>
+
+  <text x="750" y="74" text-anchor="middle" font-size="11" font-weight="600" fill="#f6a04d">② 失效指令下发全网节点</text>
+  <path d="M 540,162 C 590,162 620,120 652,114" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#n-arrO)"/>
+  <path d="M 540,162 L 652,182" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#n-arrO)"/>
+  <path d="M 540,162 C 590,162 620,244 652,250" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#n-arrO)"/>
+
+  <rect x="660" y="88" width="180" height="52" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="750" y="108" text-anchor="middle" font-size="11.5" font-weight="600" fill="#ffffff">边缘节点 · 上海</text>
+  <text x="750" y="126" text-anchor="middle" font-size="10" fill="#8b91b8">app.js v1 · <tspan fill="#e06a6a" font-weight="600">已删除 ✕</tspan></text>
+  <rect x="660" y="156" width="180" height="52" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="750" y="176" text-anchor="middle" font-size="11.5" font-weight="600" fill="#ffffff">边缘节点 · 广州</text>
+  <text x="750" y="194" text-anchor="middle" font-size="10" fill="#8b91b8">app.js v1 · <tspan fill="#e06a6a" font-weight="600">已删除 ✕</tspan></text>
+  <rect x="660" y="224" width="180" height="52" rx="10" fill="#171b3a" stroke="#343b6e"/>
+  <text x="750" y="244" text-anchor="middle" font-size="11.5" font-weight="600" fill="#ffffff">边缘节点 · 北京</text>
+  <text x="750" y="262" text-anchor="middle" font-size="10" fill="#8b91b8">app.js v1 · <tspan fill="#e06a6a" font-weight="600">已删除 ✕</tspan></text>
+
+  <line x1="60" y1="296" x2="840" y2="296" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <rect x="262" y="312" width="376" height="24" rx="12" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.35"/>
+  <text x="450" y="328" text-anchor="middle" font-size="11.5" font-weight="600" fill="#3ecf8e">阶段二 · 生效：下次请求自动拿到新内容</text>
+
+  <rect x="60" y="430" width="130" height="80" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="125" cy="452" r="4.5" fill="#3ecf8e"/>
+  <text x="125" y="478" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">上海用户</text>
+  <text x="125" y="498" text-anchor="middle" font-size="10" fill="#8b91b8">浏览器 / App</text>
+
+  <rect x="300" y="390" width="240" height="190" rx="14" fill="#171b3a" stroke="#343b6e"/>
+  <text x="420" y="418" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">边缘节点 · 上海</text>
+  <line x1="325" y1="430" x2="515" y2="430" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="325" y="450" font-size="11" fill="#8b91b8">旧缓存 app.js v1</text>
+  <text x="515" y="450" text-anchor="end" font-size="11" font-weight="600" fill="#e06a6a">已删除 ✕</text>
+  <line x1="325" y1="460" x2="515" y2="460" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="325" y="480" font-size="11" fill="#8b91b8">请求到达</text>
+  <text x="515" y="480" text-anchor="end" font-size="11" font-weight="600" fill="#f6a04d">未命中</text>
+  <line x1="325" y1="490" x2="515" y2="490" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="325" y="510" font-size="11" fill="#8b91b8">回源拉取</text>
+  <text x="515" y="510" text-anchor="end" font-size="11" fill="#dfe4fa">app.js v2</text>
+  <line x1="325" y1="520" x2="515" y2="520" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="325" y="540" font-size="11" fill="#8b91b8">新缓存</text>
+  <text x="515" y="540" text-anchor="end" font-size="11" font-weight="600" fill="#3ecf8e">v2 已写入 ✓</text>
+  <text x="420" y="568" text-anchor="middle" font-size="10" fill="#8b91b8">后续请求全部命中新内容</text>
+
+  <rect x="660" y="420" width="190" height="110" rx="14" fill="#171b3a" stroke="#343b6e"/>
+  <text x="755" y="450" text-anchor="middle" font-size="14" font-weight="700" fill="#ffffff">源站</text>
+  <text x="755" y="472" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">OSS / 业务服务器</text>
+  <text x="755" y="502" text-anchor="middle" font-size="10.5" font-weight="600" fill="#3ecf8e">新内容 app.js v2 已就绪</text>
+
+  <path d="M 190,470 C 240,466 260,462 294,458" fill="none" stroke="#5b8def" stroke-width="2" marker-end="url(#n-arrB)"/>
+  <text x="240" y="446" text-anchor="middle" font-size="11" font-weight="600" fill="#5b8def">③ 请求 app.js</text>
+  <path d="M 542,460 C 590,458 620,458 652,462" fill="none" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#n-arrP)"/>
+  <text x="597" y="442" text-anchor="middle" font-size="10.5" font-weight="600" fill="#a06ee1">④ 未命中 · 回源</text>
+  <path d="M 652,512 C 610,514 580,516 546,518" fill="none" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#n-arrP)"/>
+  <text x="600" y="538" text-anchor="middle" font-size="10.5" font-weight="600" fill="#a06ee1">⑤ 返回 v2 · 写入缓存</text>
+  <path d="M 298,540 C 250,542 230,544 196,546" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#n-arrG)"/>
+  <text x="245" y="568" text-anchor="middle" font-size="11" font-weight="600" fill="#3ecf8e">⑥ 返回新内容</text>
+
+  <g>
+    <circle r="7" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.2s" begin="0s" repeatCount="indefinite" path="M 242,162 L 334,162"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#ffc069"><animateMotion dur="2.2s" begin="0s" repeatCount="indefinite" path="M 242,162 L 334,162"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.6s" begin="0.6s" repeatCount="indefinite" path="M 540,162 C 590,162 620,120 652,114"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#ffc069"><animateMotion dur="2.6s" begin="0.6s" repeatCount="indefinite" path="M 540,162 C 590,162 620,120 652,114"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.6s" begin="1.1s" repeatCount="indefinite" path="M 540,162 L 652,182"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="1.1s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#ffc069"><animateMotion dur="2.6s" begin="1.1s" repeatCount="indefinite" path="M 540,162 L 652,182"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="1.1s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite" path="M 540,162 C 590,162 620,244 652,250"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="1.6s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#ffc069"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite" path="M 540,162 C 590,162 620,244 652,250"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="1.6s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#5b8def" opacity="0.3"><animateMotion dur="2.4s" begin="0.3s" repeatCount="indefinite" path="M 190,470 C 240,466 260,462 294,458"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#8fb3f7"><animateMotion dur="2.4s" begin="0.3s" repeatCount="indefinite" path="M 190,470 C 240,466 260,462 294,458"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="0.3s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.4s" begin="1s" repeatCount="indefinite" path="M 542,460 C 590,458 620,458 652,462"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#c4a5f5"><animateMotion dur="2.4s" begin="1s" repeatCount="indefinite" path="M 542,460 C 590,458 620,458 652,462"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.4s" begin="1.8s" repeatCount="indefinite" path="M 652,512 C 610,514 580,516 546,518"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1.8s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#c4a5f5"><animateMotion dur="2.4s" begin="1.8s" repeatCount="indefinite" path="M 652,512 C 610,514 580,516 546,518"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#3ecf8e" opacity="0.3"><animateMotion dur="2.4s" begin="1.4s" repeatCount="indefinite" path="M 298,540 C 250,542 230,544 196,546"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1.4s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#7fe3b0"><animateMotion dur="2.4s" begin="1.4s" repeatCount="indefinite" path="M 298,540 C 250,542 230,544 196,546"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2.4s" begin="1.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="180" y="634" width="10" height="10" rx="2" fill="#f6a04d"/>
+  <text x="196" y="643" font-size="11" fill="#cdd5ff">①② 刷新指令</text>
+  <rect x="312" y="634" width="10" height="10" rx="2" fill="#5b8def"/>
+  <text x="328" y="643" font-size="11" fill="#cdd5ff">③ 用户请求</text>
+  <line x1="436" y1="639" x2="458" y2="639" stroke="#a06ee1" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="464" y="643" font-size="11" fill="#cdd5ff">④⑤ 回源</text>
+  <rect x="556" y="634" width="10" height="10" rx="2" fill="#3ecf8e"/>
+  <text x="572" y="643" font-size="11" fill="#cdd5ff">⑥ 返回新内容</text>
+
+  <text x="450" y="686" text-anchor="middle" font-size="11.5" fill="#8b91b8">一句话：主动刷新删的是「旧缓存」而不是「推新内容」——指令下发后，靠下一个请求回源完成内容更新</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>刷新流程</h2>
+    <ul>
+      <li><span class="o">① 提交刷新</span>：源站内容更新后，在 CDN 控制台（或 OpenAPI）提交刷新任务——<strong>URL 刷新</strong>（精确到单个文件）或<strong>目录刷新</strong>（整个目录）</li>
+      <li><span class="o">② 失效下发</span>：刷新中心把失效指令分发到<strong>全网边缘节点</strong>（上海、广州、北京……），各节点把旧缓存标记删除，分钟级全网生效</li>
+      <li><span class="b">③ 下次请求未命中</span>：上海用户请求 <code>app.js</code>，上海节点的旧缓存已被删除，没有可用副本</li>
+      <li><span class="p">④⑤ 回源拉新</span>：节点回源站取新内容（v2），写入本地缓存</li>
+      <li><span class="g">⑥ 返回新内容</span>：该用户及后续所有用户都拿到新版本</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>注意点</h2>
+    <ul>
+      <li><strong>刷新 ≠ 推新内容</strong>：指令只是"删旧"，新内容是下一个请求回源时自然拉取的——所以刷新后<strong>第一波请求会变慢</strong>（全部回源）</li>
+      <li><strong>回源突增</strong>：大规模目录刷新会让大量请求同时回源，源站压力尖峰；大流量业务要分批刷新、避开高峰</li>
+      <li><strong>生效有延迟</strong>：指令下发全网是分钟级，不是秒级；急着全量切换的场景应该用「版本化文件名」方案而不是刷新</li>
+    </ul>
+  </section>
+
+  <div class="tip">面试一句话：CDN 主动刷新 = 「失效指令下发全网节点删旧缓存」+「下一个请求回源拉新」，分钟级生效；要警惕大批量刷新引发的回源突增。</div>
+
+  <p class="nav"><a href="CDN.html">← CDN 工作流程</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
