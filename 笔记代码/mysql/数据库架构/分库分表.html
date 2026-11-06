@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分库分表（水平拆分）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-b { color: var(--blue); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>分库分表（水平拆分）</h1>
+    <p class="sub">
+      <span class="no-o">① 写请求</span>按分片键路由到目标分片的主库；<span class="no-b">② 读请求</span>路由到分片从库；
+      <span class="no-p">③ 每个分片内部</span>仍是一套独立的一主一从复制。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="780" viewBox="0 0 900 780" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <linearGradient id="f3-wO" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7971e"/><stop offset="1" stop-color="#ffd200"/>
+    </linearGradient>
+    <linearGradient id="f3-wB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#6dd5fa"/>
+    </linearGradient>
+    <linearGradient id="f3-pG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/><stop offset="0.5" stop-color="#ec4899"/><stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="f3-barO" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f7971e"/><stop offset="1" stop-color="#ffd200"/>
+    </linearGradient>
+    <linearGradient id="f3-barB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#6dd5fa"/>
+    </linearGradient>
+    <marker id="f3-arrP" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#a06ee1"/>
+    </marker>
+    <marker id="f3-arrB" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#5b8def"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="780" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="30" text-anchor="middle" font-size="11" letter-spacing="3" fill="#8b91b8">应用层</text>
+  <line x1="330" y1="26" x2="400" y2="26" stroke="#343b6e"/>
+  <line x1="500" y1="26" x2="570" y2="26" stroke="#343b6e"/>
+
+  <rect x="224" y="46" width="140" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="246" cy="69" r="4.5" fill="#f6a04d"/>
+  <text x="258" y="73" font-size="13" fill="#dfe4fa">订单服务</text>
+  <rect x="380" y="46" width="140" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="402" cy="69" r="4.5" fill="#3ecf8e"/>
+  <text x="414" y="73" font-size="13" fill="#dfe4fa">商品服务</text>
+  <rect x="536" y="46" width="140" height="46" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="558" cy="69" r="4.5" fill="#5b8def"/>
+  <text x="570" y="73" font-size="13" fill="#dfe4fa">用户服务</text>
+
+  <line x1="450" y1="94" x2="450" y2="136" stroke="#3d4478" stroke-width="2"/>
+
+  <rect x="270" y="140" width="360" height="96" rx="14" fill="#151937" stroke="url(#f3-pG)" stroke-width="2"/>
+  <rect x="292" y="129" width="64" height="20" rx="10" fill="#7c3aed"/>
+  <text x="324" y="143" text-anchor="middle" font-size="10.5" fill="#ffffff">代理层</text>
+  <text x="450" y="174" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">分库分表中间件</text>
+  <text x="450" y="193" text-anchor="middle" font-size="11" fill="#8b91b8">ShardingSphere-Proxy · MyCat · Vitess</text>
+  <rect x="324" y="204" width="76" height="20" rx="10" fill="#3ecf8e" fill-opacity="0.1" stroke="#3ecf8e" stroke-opacity="0.45"/>
+  <text x="362" y="218" text-anchor="middle" font-size="11" fill="#3ecf8e">分片路由</text>
+  <rect x="412" y="204" width="76" height="20" rx="10" fill="#f6a04d" fill-opacity="0.1" stroke="#f6a04d" stroke-opacity="0.45"/>
+  <text x="450" y="218" text-anchor="middle" font-size="11" fill="#f6a04d">读写分离</text>
+  <rect x="500" y="204" width="76" height="20" rx="10" fill="#e06a9d" fill-opacity="0.1" stroke="#e06a9d" stroke-opacity="0.45"/>
+  <text x="538" y="218" text-anchor="middle" font-size="11" fill="#e06a9d">结果归并</text>
+
+  <rect x="318" y="246" width="264" height="24" rx="12" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="450" y="262" text-anchor="middle" font-size="11" font-weight="600" fill="#3ecf8e">路由规则：分片 = user_id % 2</text>
+
+  <text x="450" y="294" text-anchor="middle" font-size="11" letter-spacing="3" fill="#8b91b8">数据层</text>
+  <line x1="336" y1="290" x2="392" y2="290" stroke="#343b6e"/>
+  <line x1="508" y1="290" x2="564" y2="290" stroke="#343b6e"/>
+
+  <path d="M 400,236 C 320,264 280,276 256,318" fill="none" stroke="url(#f3-wO)" stroke-width="2"/>
+  <text x="283" y="268" text-anchor="middle" font-size="12" font-weight="600" fill="#f6a04d">① 写</text>
+  <path d="M 500,236 C 580,264 620,276 644,318" fill="none" stroke="url(#f3-wO)" stroke-width="2"/>
+  <text x="617" y="268" text-anchor="middle" font-size="12" font-weight="600" fill="#f6a04d">① 写</text>
+
+  <path d="M 322,236 C 214,258 104,270 76,306 L 76,606 C 76,616 96,620 112,620" fill="none" stroke="url(#f3-wB)" stroke-width="2" marker-end="url(#f3-arrB)"/>
+  <text x="60" y="450" text-anchor="middle" font-size="12" font-weight="600" fill="#5b8def" transform="rotate(-90 60 450)">② 读 (Read)</text>
+  <path d="M 578,236 C 686,258 796,270 824,306 L 824,606 C 824,616 804,620 788,620" fill="none" stroke="url(#f3-wB)" stroke-width="2" marker-end="url(#f3-arrB)"/>
+  <text x="840" y="450" text-anchor="middle" font-size="12" font-weight="600" fill="#5b8def" transform="rotate(90 840 450)">② 读 (Read)</text>
+
+  <rect x="90" y="306" width="320" height="400" rx="14" fill="#12173a" stroke="#343b6e" stroke-dasharray="6 4"/>
+  <rect x="170" y="296" width="160" height="20" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="250" y="310" text-anchor="middle" font-size="11" fill="#dfe4fa">分片 0 · db_0</text>
+
+  <rect x="118" y="330" width="264" height="180" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <rect x="120" y="330" width="260" height="4" fill="url(#f3-barO)"/>
+  <circle cx="140" cy="360" r="4.5" fill="#f6a04d"/>
+  <text x="151" y="364" font-size="14" font-weight="700" fill="#ffffff">Master-0 分片主库</text>
+  <text x="140" y="386" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">192.168.1.10:3306</text>
+  <line x1="140" y1="399" x2="360" y2="399" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="140" y="418" font-size="12" fill="#8b91b8">读写状态</text>
+  <text x="360" y="418" text-anchor="end" font-size="12" font-weight="600" fill="#f6a04d">可读写</text>
+  <line x1="140" y1="429" x2="360" y2="429" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="140" y="448" font-size="12" fill="#8b91b8">数据范围</text>
+  <text x="360" y="448" text-anchor="end" font-size="12" font-weight="600" fill="#dfe4fa">user_id % 2 = 0</text>
+  <text x="140" y="478" font-size="12" fill="#8b91b8">分表</text>
+  <rect x="180" y="462" width="64" height="24" rx="7" fill="#ffffff" fill-opacity="0.06" stroke="#3d4478"/>
+  <text x="212" y="478" text-anchor="middle" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#cdd5ff">order_0</text>
+  <rect x="252" y="462" width="64" height="24" rx="7" fill="#ffffff" fill-opacity="0.06" stroke="#3d4478"/>
+  <text x="284" y="478" text-anchor="middle" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#cdd5ff">order_1</text>
+
+  <line x1="250" y1="514" x2="250" y2="556" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#f3-arrP)"/>
+  <text x="262" y="538" font-size="10.5" font-weight="600" fill="#a06ee1">③ 复制</text>
+
+  <rect x="118" y="560" width="264" height="120" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <rect x="120" y="560" width="260" height="4" fill="url(#f3-barB)"/>
+  <circle cx="140" cy="590" r="4.5" fill="#5b8def"/>
+  <text x="151" y="594" font-size="14" font-weight="700" fill="#ffffff">Slave-0 分片从库</text>
+  <text x="140" y="616" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">192.168.1.11:3306</text>
+  <line x1="140" y1="629" x2="360" y2="629" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="140" y="648" font-size="12" fill="#8b91b8">读写状态</text>
+  <text x="360" y="648" text-anchor="end" font-size="12" font-weight="600" fill="#5b8def">只读</text>
+
+  <rect x="490" y="306" width="320" height="400" rx="14" fill="#12173a" stroke="#343b6e" stroke-dasharray="6 4"/>
+  <rect x="570" y="296" width="160" height="20" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="650" y="310" text-anchor="middle" font-size="11" fill="#dfe4fa">分片 1 · db_1</text>
+
+  <rect x="538" y="330" width="264" height="180" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <rect x="540" y="330" width="260" height="4" fill="url(#f3-barO)"/>
+  <circle cx="560" cy="360" r="4.5" fill="#f6a04d"/>
+  <text x="571" y="364" font-size="14" font-weight="700" fill="#ffffff">Master-1 分片主库</text>
+  <text x="560" y="386" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">192.168.1.20:3306</text>
+  <line x1="560" y1="399" x2="780" y2="399" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="560" y="418" font-size="12" fill="#8b91b8">读写状态</text>
+  <text x="780" y="418" text-anchor="end" font-size="12" font-weight="600" fill="#f6a04d">可读写</text>
+  <line x1="560" y1="429" x2="780" y2="429" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="560" y="448" font-size="12" fill="#8b91b8">数据范围</text>
+  <text x="780" y="448" text-anchor="end" font-size="12" font-weight="600" fill="#dfe4fa">user_id % 2 = 1</text>
+  <text x="560" y="478" font-size="12" fill="#8b91b8">分表</text>
+  <rect x="600" y="462" width="64" height="24" rx="7" fill="#ffffff" fill-opacity="0.06" stroke="#3d4478"/>
+  <text x="632" y="478" text-anchor="middle" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#cdd5ff">order_0</text>
+  <rect x="672" y="462" width="64" height="24" rx="7" fill="#ffffff" fill-opacity="0.06" stroke="#3d4478"/>
+  <text x="704" y="478" text-anchor="middle" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#cdd5ff">order_1</text>
+
+  <line x1="670" y1="514" x2="670" y2="556" stroke="#a06ee1" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#f3-arrP)"/>
+  <text x="682" y="538" font-size="10.5" font-weight="600" fill="#a06ee1">③ 复制</text>
+
+  <rect x="538" y="560" width="264" height="120" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <rect x="540" y="560" width="260" height="4" fill="url(#f3-barB)"/>
+  <circle cx="560" cy="590" r="4.5" fill="#5b8def"/>
+  <text x="571" y="594" font-size="14" font-weight="700" fill="#ffffff">Slave-1 分片从库</text>
+  <text x="560" y="616" font-size="11" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">192.168.1.21:3306</text>
+  <line x1="560" y1="629" x2="780" y2="629" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="560" y="648" font-size="12" fill="#8b91b8">读写状态</text>
+  <text x="780" y="648" text-anchor="end" font-size="12" font-weight="600" fill="#5b8def">只读</text>
+
+  <g>
+    <circle r="8" fill="#8b93ff" opacity="0.3"><animateMotion dur="2.4s" begin="0s" repeatCount="indefinite" path="M 450,94 L 450,136"/><animate attributeName="opacity" values="0;0.3;0.3;0" keyTimes="0;0.15;0.85;1" dur="2.4s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#aab1ff"><animateMotion dur="2.4s" begin="0s" repeatCount="indefinite" path="M 450,94 L 450,136"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#8b93ff" opacity="0.3"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite" path="M 450,94 L 450,136"/><animate attributeName="opacity" values="0;0.3;0.3;0" keyTimes="0;0.15;0.85;1" dur="2.4s" begin="1.2s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#aab1ff"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite" path="M 450,94 L 450,136"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" begin="1.2s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="9" fill="#f6a04d" opacity="0.3"><animateMotion dur="3s" begin="0.5s" repeatCount="indefinite" path="M 400,236 C 320,264 280,276 256,318"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="3s" begin="0.5s" repeatCount="indefinite"/></circle>
+    <circle r="4" fill="#ffc069"><animateMotion dur="3s" begin="0.5s" repeatCount="indefinite" path="M 400,236 C 320,264 280,276 256,318"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="3s" begin="0.5s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="9" fill="#f6a04d" opacity="0.3"><animateMotion dur="3s" begin="1.8s" repeatCount="indefinite" path="M 500,236 C 580,264 620,276 644,318"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="3s" begin="1.8s" repeatCount="indefinite"/></circle>
+    <circle r="4" fill="#ffc069"><animateMotion dur="3s" begin="1.8s" repeatCount="indefinite" path="M 500,236 C 580,264 620,276 644,318"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="3s" begin="1.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="9" fill="#5b8def" opacity="0.3"><animateMotion dur="5s" begin="1.2s" repeatCount="indefinite" path="M 322,236 C 214,258 104,270 76,306 L 76,606 C 76,616 96,620 112,620"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="1.2s" repeatCount="indefinite"/></circle>
+    <circle r="4" fill="#8fb3f7"><animateMotion dur="5s" begin="1.2s" repeatCount="indefinite" path="M 322,236 C 214,258 104,270 76,306 L 76,606 C 76,616 96,620 112,620"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="1.2s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="9" fill="#5b8def" opacity="0.3"><animateMotion dur="5s" begin="2.8s" repeatCount="indefinite" path="M 578,236 C 686,258 796,270 824,306 L 824,606 C 824,616 804,620 788,620"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="2.8s" repeatCount="indefinite"/></circle>
+    <circle r="4" fill="#8fb3f7"><animateMotion dur="5s" begin="2.8s" repeatCount="indefinite" path="M 578,236 C 686,258 796,270 824,306 L 824,606 C 824,616 804,620 788,620"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.06;0.94;1" dur="5s" begin="2.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.2s" begin="0.8s" repeatCount="indefinite" path="M 250,514 L 250,556"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.1;0.9;1" dur="2.2s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#c4a5f5"><animateMotion dur="2.2s" begin="0.8s" repeatCount="indefinite" path="M 250,514 L 250,556"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2.2s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.2s" begin="1.6s" repeatCount="indefinite" path="M 670,514 L 670,556"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.1;0.9;1" dur="2.2s" begin="1.6s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#c4a5f5"><animateMotion dur="2.2s" begin="1.6s" repeatCount="indefinite" path="M 670,514 L 670,556"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="2.2s" begin="1.6s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="150" y="740" width="10" height="10" rx="2" fill="#f6a04d"/>
+  <text x="166" y="748" font-size="11" fill="#cdd5ff">① 写（带分片键）→ 分片主库</text>
+  <rect x="412" y="740" width="10" height="10" rx="2" fill="#5b8def"/>
+  <text x="428" y="748" font-size="11" fill="#cdd5ff">② 读 → 分片从库</text>
+  <line x1="592" y1="745" x2="614" y2="745" stroke="#a06ee1" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="620" y="748" font-size="11" fill="#cdd5ff">③ 片内主从复制</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>数据流</h2>
+    <ul>
+      <li><span class="o">① 写请求</span>：携带分片键（如 <code>user_id</code>），中间件按路由规则 <code>user_id % 2</code> 算出目标分片，写入该片主库——<strong>同一用户的数据永远落在同一片</strong></li>
+      <li><span class="b">② 读请求</span>：同样按分片键路由到对应分片的从库；<strong>没带分片键的查询</strong>会被广播到所有分片、结果归并后返回（慢，要尽量避免）</li>
+      <li><span class="p">③ 片内复制</span>：每个分片仍是一套独立的一主一从，Binlog 复制保证片内高可用与读扩展</li>
+      <li>片内还可再分表：库路由 <code>user_id % 2</code>、表路由 <code>order_id % 2</code>，落到 <code>order_0</code> / <code>order_1</code></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>两种拆分方式</h2>
+    <table>
+      <tr><th>方式</th><th>怎么拆</th><th>解决什么</th><th>局限 / 代价</th></tr>
+      <tr>
+        <td>垂直拆分</td>
+        <td>按业务拆库：用户库 / 订单库 / 商品库各自独立</td>
+        <td>业务解耦、单库连接数与容量压力</td>
+        <td>单表数据量大了依然扛不住</td>
+      </tr>
+      <tr>
+        <td>水平拆分（本图）</td>
+        <td>同一张表按分片键把行分散到多片：<code>order_0</code> / <code>order_1</code> …</td>
+        <td>单表千万级+ 的数据量与写入瓶颈</td>
+        <td>跨片 JOIN / 分布式事务 / 结果归并变复杂</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>特点</h2>
+    <ul>
+      <li><strong>优点</strong>：突破单库容量与写入瓶颈，加机器即可<strong>近线性水平扩展</strong>；分片之间故障隔离</li>
+      <li><strong>缺点</strong>：跨片 JOIN / 分布式事务（XA、Seata）复杂；需要分布式全局 ID（雪花算法、号段模式）；跨片分页排序要归并；扩容需数据迁移（翻倍扩容 / 一致性哈希）</li>
+      <li><strong>适用</strong>：单表千万级以上、主库写满、读写分离也扛不住的大型业务</li>
+    </ul>
+  </section>
+
+  <div class="tip">核心权衡：分库分表是「最后的手段」——先用 <a href="一主一从.html" style="color:#f2b57c">读写分离</a>扛；非拆不可时先垂直拆（按业务），还不够再水平拆（按分片键）。拆分之后，「数据永远跟着分片键走」是设计第一原则。</div>
+
+  <p class="nav"><a href="一主一从.html">← 一主一从（读写分离）</a><a href="双主双从.html">双主双从（读写分离）→</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
