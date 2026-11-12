@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>雪花算法（Snowflake ID）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-b { color: var(--blue); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .o { color: var(--orange); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>雪花算法（Snowflake ID）</h1>
+    <p class="sub">
+      一个 64 位 long 拼出全局唯一 ID：<span class="no-b">41 位毫秒时间戳</span>保趋势递增，
+      <span class="no-p">10 位机器号</span>保多机不冲突，<span class="no-g">12 位序列号</span>保单机同毫秒并发不冲突。
+      本地生成、无中心依赖、性能极高。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1000" viewBox="0 0 900 1000" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="s-arrB" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#5b8def"/>
+    </marker>
+    <marker id="s-arrG" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#3ecf8e"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1000" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="40" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">第一部分 · 64 位结构：四段拼装</text>
+  <line x1="280" y1="36" x2="356" y2="36" stroke="#343b6e"/>
+  <line x1="544" y1="36" x2="620" y2="36" stroke="#343b6e"/>
+
+  <rect x="60" y="58" width="60" height="46" rx="8" fill="#8b91b8" fill-opacity="0.1" stroke="#5d6390"/>
+  <text x="90" y="86" text-anchor="middle" font-size="13" font-weight="700" fill="#8b91b8">0</text>
+  <rect x="120" y="58" width="390" height="46" rx="8" fill="#5b8def" fill-opacity="0.12" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="315" y="86" text-anchor="middle" font-size="13" font-weight="700" fill="#8fb3f7">41 位 · 毫秒时间戳（当前毫秒 − 起始纪元）</text>
+  <rect x="510" y="58" width="100" height="46" rx="8" fill="#a06ee1" fill-opacity="0.12" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="560" y="86" text-anchor="middle" font-size="13" font-weight="700" fill="#c4a5f5">10 位 · 机器号</text>
+  <rect x="610" y="58" width="230" height="46" rx="8" fill="#3ecf8e" fill-opacity="0.12" stroke="#3ecf8e" stroke-opacity="0.55"/>
+  <text x="725" y="86" text-anchor="middle" font-size="13" font-weight="700" fill="#7fe3b0">12 位 · 序列号（同毫秒内自增）</text>
+
+  <text x="60" y="132" font-size="10.5" fill="#8b91b8">1 位符号位（恒 0）</text>
+  <text x="315" y="132" text-anchor="middle" font-size="10.5" fill="#8b91b8">2⁴¹ 毫秒 ≈ <tspan fill="#8fb3f7" font-weight="600">69 年</tspan>可用</text>
+  <text x="560" y="132" text-anchor="middle" font-size="10.5" fill="#8b91b8">2¹⁰ = <tspan fill="#c4a5f5" font-weight="600">1024</tspan> 台机器</text>
+  <text x="725" y="132" text-anchor="middle" font-size="10.5" fill="#8b91b8">2¹² = 每毫秒 <tspan fill="#7fe3b0" font-weight="600">4096</tspan> 个</text>
+
+  <line x1="60" y1="152" x2="840" y2="152" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <text x="450" y="184" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">第二部分 · 为什么全局唯一：三个维度正交</text>
+  <line x1="250" y1="180" x2="330" y2="180" stroke="#343b6e"/>
+  <line x1="570" y1="180" x2="650" y2="180" stroke="#343b6e"/>
+
+  <rect x="80" y="206" width="220" height="96" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="102" cy="232" r="4.5" fill="#5b8def"/>
+  <text x="114" y="236" font-size="13" font-weight="700" fill="#8fb3f7">时间不同</text>
+  <text x="100" y="260" font-size="10.5" fill="#8b91b8">毫秒时间戳一直在涨</text>
+  <text x="100" y="278" font-size="10.5" fill="#8b91b8">不同毫秒 → 高位必不同</text>
+
+  <rect x="340" y="206" width="220" height="96" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="362" cy="232" r="4.5" fill="#a06ee1"/>
+  <text x="374" y="236" font-size="13" font-weight="700" fill="#c4a5f5">机器不同</text>
+  <text x="360" y="260" font-size="10.5" fill="#8b91b8">每台节点机器号唯一</text>
+  <text x="360" y="278" font-size="10.5" fill="#8b91b8">同一毫秒多机生成 → 中段不同</text>
+
+  <rect x="600" y="206" width="220" height="96" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="622" cy="232" r="4.5" fill="#3ecf8e"/>
+  <text x="634" y="236" font-size="13" font-weight="700" fill="#7fe3b0">同机同毫秒</text>
+  <text x="620" y="260" font-size="10.5" fill="#8b91b8">序列号 0→4095 自增</text>
+  <text x="620" y="278" font-size="10.5" fill="#8b91b8">单机并发 → 低位也不同</text>
+
+  <text x="450" y="336" text-anchor="middle" font-size="11" font-weight="600" fill="#dfe4fa">三个维度任意一个不同 → ID 就不同 → 全局唯一</text>
+
+  <line x1="60" y1="356" x2="840" y2="356" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <text x="450" y="388" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">第三部分 · 序列号耗尽怎么办：自旋等下一毫秒</text>
+  <line x1="210" y1="384" x2="296" y2="384" stroke="#343b6e"/>
+  <line x1="604" y1="384" x2="690" y2="384" stroke="#343b6e"/>
+
+  <rect x="120" y="410" width="270" height="200" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="255" y="438" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">毫秒 T</text>
+  <line x1="150" y1="450" x2="360" y2="450" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="150" y="472" font-size="11" fill="#8b91b8">序列号使用</text>
+  <text x="360" y="472" text-anchor="end" font-size="11" fill="#dfe4fa">0 → 4095</text>
+  <text x="150" y="498" font-size="11" fill="#8b91b8">第 4096 个请求</text>
+  <text x="360" y="498" text-anchor="end" font-size="11" fill="#dfe4fa">序列号用尽</text>
+  <rect x="150" y="512" width="210" height="30" rx="8" fill="#f6a04d" fill-opacity="0.1" stroke="#f6a04d" stroke-opacity="0.45"/>
+  <text x="255" y="531" text-anchor="middle" font-size="11" font-weight="600" fill="#ffc069">自旋等待 → 进入毫秒 T+1</text>
+  <text x="255" y="572" text-anchor="middle" font-size="10" fill="#8b91b8">序列号从 0 重新开始</text>
+  <text x="255" y="594" text-anchor="middle" font-size="10" fill="#8b91b8">时间戳 +1 → ID 继续递增</text>
+
+  <path d="M 392,512 C 440,512 470,500 498,488" fill="none" stroke="#5b8def" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#s-arrB)"/>
+
+  <rect x="510" y="410" width="270" height="200" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="645" y="438" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">毫秒 T+1</text>
+  <line x1="540" y1="450" x2="750" y2="450" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="540" y="472" font-size="11" fill="#8b91b8">序列号使用</text>
+  <text x="750" y="472" text-anchor="end" font-size="11" fill="#dfe4fa">0 → …</text>
+  <text x="540" y="498" font-size="11" fill="#8b91b8">时间戳</text>
+  <text x="750" y="498" text-anchor="end" font-size="11" font-weight="600" fill="#8fb3f7">T + 1（严格更大）</text>
+  <text x="645" y="540" text-anchor="middle" font-size="10" fill="#8b91b8">即便上一毫秒序列号没用完</text>
+  <text x="645" y="562" text-anchor="middle" font-size="10" fill="#8b91b8">新毫秒的 ID 高位也必然更大</text>
+  <text x="645" y="590" text-anchor="middle" font-size="11" font-weight="600" fill="#3ecf8e">→ 整体趋势递增（B+ 树友好）</text>
+
+  <g>
+    <circle r="7" fill="#5b8def" opacity="0.3"><animateMotion dur="2.6s" begin="0.5s" repeatCount="indefinite" path="M 392,512 C 440,512 470,500 498,488"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="0.5s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#8fb3f7"><animateMotion dur="2.6s" begin="0.5s" repeatCount="indefinite" path="M 392,512 C 440,512 470,500 498,488"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.6s" begin="0.5s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <line x1="60" y1="640" x2="840" y2="640" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <text x="450" y="672" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">第四部分 · 最大坑：时钟回拨</text>
+  <line x1="296" y1="668" x2="362" y2="668" stroke="#343b6e"/>
+  <line x1="538" y1="668" x2="604" y2="668" stroke="#343b6e"/>
+
+  <rect x="80" y="694" width="350" height="200" rx="12" fill="#171b3a" stroke="#e06a6a" stroke-opacity="0.5"/>
+  <text x="255" y="722" text-anchor="middle" font-size="13" font-weight="700" fill="#f09090">问题：时间倒退 → ID 重复</text>
+  <line x1="110" y1="736" x2="400" y2="736" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="110" y="758" font-size="11" fill="#8b91b8">T=100 时已生成一批 ID</text>
+  <text x="110" y="782" font-size="11" fill="#8b91b8">NTP 校时 / 系统改时间</text>
+  <text x="400" y="782" text-anchor="end" font-size="11" font-weight="600" fill="#f09090">时钟回到 T=90</text>
+  <text x="110" y="806" font-size="11" fill="#8b91b8">T=90~100 的序列号重新从 0 走</text>
+  <text x="400" y="806" text-anchor="end" font-size="11" font-weight="600" fill="#f09090">与已生成的 ID 撞号</text>
+  <text x="255" y="842" text-anchor="middle" font-size="10.5" fill="#8b91b8">这是雪花算法唯一的"软肋"：依赖本地时钟</text>
+  <text x="255" y="868" text-anchor="middle" font-size="10.5" fill="#8b91b8">重启后时钟正常则无影响，关键是运行中回拨</text>
+
+  <rect x="470" y="694" width="350" height="200" rx="12" fill="#171b3a" stroke="#3ecf8e" stroke-opacity="0.5"/>
+  <text x="645" y="722" text-anchor="middle" font-size="13" font-weight="700" fill="#7fe3b0">解法（按实现复杂度）</text>
+  <line x1="500" y1="736" x2="790" y2="736" stroke="#262c52" stroke-dasharray="2 3"/>
+  <text x="500" y="760" font-size="11" font-weight="600" fill="#dfe4fa">① 小幅回拨：等待追上</text>
+  <text x="500" y="780" font-size="10" fill="#8b91b8">回拨 &lt; 几毫秒 → 自旋等到时钟赶上来再继续</text>
+  <text x="500" y="808" font-size="11" font-weight="600" fill="#dfe4fa">② 大幅回拨：拒绝服务 + 告警</text>
+  <text x="500" y="828" font-size="10" fill="#8b91b8">宁可暂时发不了号，也不发重复号</text>
+  <text x="500" y="856" font-size="11" font-weight="600" fill="#dfe4fa">③ 换机器号（美团 Leaf）</text>
+  <text x="500" y="876" font-size="10" fill="#8b91b8">检测到回拨 → 换一个新 workerId 继续发号</text>
+
+  <text x="450" y="944" text-anchor="middle" font-size="11.5" fill="#8b91b8">一句话：时间是骨架、机器是分支、序列是末梢 —— 拼出一个「无中心、趋势递增、全局唯一」的 64 位 ID</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>64 位结构拆解</h2>
+    <ul>
+      <li><strong>1 位符号位</strong>：固定为 0，保证 ID 是正数</li>
+      <li><span class="b">41 位毫秒时间戳</span>：当前毫秒 − 自定义起始纪元（如 2020-01-01），2⁴¹ ≈ 69 年不溢出；<strong>高位即时间 → ID 天然趋势递增</strong>，对 MySQL B+ 树索引最友好（顺序追加、无页分裂）</li>
+      <li><span class="p">10 位机器号</span>：通常拆 5 位机房 ID + 5 位机器 ID，最多 1024 个节点；分配方式：手动配置 / Zookeeper / 数据库自增</li>
+      <li><span class="g">12 位序列号</span>：同一毫秒内 0→4095 自增；<strong>单机理论上限 ≈ 409.6 万 QPS</strong>（4096 × 1000）</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>优缺点</h2>
+    <ul>
+      <li><strong>优点</strong>：本地生成无网络开销（比 DB 自增、Redis INCR 都快）；趋势递增适合做 MySQL 主键；不依赖第三方组件，高可用</li>
+      <li><strong>缺点</strong>：依赖本地时钟 → <strong>时钟回拨会发重复 ID</strong>（生产必须处理）；趋势递增意味着<strong>可枚举</strong>（竞争对手可估算你的订单量，对外暴露需加密/混淆）；机器号需要分配方案，否则扩容易冲突</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>分布式 ID 方案对比（面试常考）</h2>
+    <table>
+      <tr><th>方案</th><th>优点</th><th>缺点</th></tr>
+      <tr>
+        <td>数据库自增 / 号段</td>
+        <td>实现简单、严格递增</td>
+        <td>依赖 DB 可用性；号段模式仍有单点风险</td>
+      </tr>
+      <tr>
+        <td>Redis INCR</td>
+        <td>性能不错、严格递增</td>
+        <td>多一个中间件依赖；持久化策略影响可靠性</td>
+      </tr>
+      <tr>
+        <td>UUID</td>
+        <td>无依赖、最简单</td>
+        <td>太长（36 字符）、<strong>无序</strong> → 做 MySQL 主键引发频繁页分裂，性能差</td>
+      </tr>
+      <tr>
+        <td>雪花算法（本页）</td>
+        <td>无中心依赖、性能极高、趋势递增</td>
+        <td>时钟回拨需额外处理；机器号需分配</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：雪花 = 「41 位毫秒 + 10 位机器 + 12 位序列」拼成 64 位 long，本地生成、趋势递增、全局唯一；唯一要记住的坑是<strong>时钟回拨</strong>（等待 / 拒发 / 换机器号），以及分库分表场景下可把它和<strong>基因法</strong>结合（序列号低位嵌入分片基因）。</div>
+
+  <p class="nav"><a href="../../mysql/分库分表/分库分表查询.html">← 分库分表查询（基因法应用）</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>

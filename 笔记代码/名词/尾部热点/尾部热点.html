@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>尾部热点（Tail Hotspot）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-r { color: var(--red); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .o { color: var(--orange); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>尾部热点（Tail Hotspot）</h1>
+    <p class="sub">
+      按自增 ID 或时间顺序追加数据时，所有写入都砸在<span class="no-r">「尾部」的最后一个分片</span>上——
+      前面的分片都闲着，负载全部集中在尾部，分片集群被退化成单机。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="820" viewBox="0 0 900 820" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="t-arrR" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#e06a6a"/>
+    </marker>
+    <marker id="t-arrG" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#3ecf8e"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="820" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <rect x="290" y="22" width="320" height="24" rx="12" fill="#e06a6a" fill-opacity="0.1" stroke="#e06a6a" stroke-opacity="0.4"/>
+  <text x="450" y="38" text-anchor="middle" font-size="11.5" font-weight="600" fill="#e06a6a">反面 · 按自增 ID / 时间分片：尾部热点</text>
+
+  <rect x="80" y="60" width="200" height="54" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="102" cy="87" r="4.5" fill="#e06a6a"/>
+  <text x="116" y="91" font-size="12.5" font-weight="700" fill="#ffffff">连续写入 ID 7,8,9…</text>
+
+  <path d="M 280,78 C 420,70 560,66 662,72" fill="none" stroke="#e06a6a" stroke-width="2.5" marker-end="url(#t-arrR)"/>
+  <text x="470" y="58" text-anchor="middle" font-size="10.5" font-weight="600" fill="#e06a6a">新数据永远落在「最大区间」</text>
+
+  <rect x="680" y="58" width="140" height="60" rx="12" fill="#171b3a" stroke="#e06a6a" stroke-width="2"/>
+  <circle cx="702" cy="82" r="4" fill="#e06a6a"/>
+  <text x="714" y="86" font-size="12" font-weight="700" fill="#ffffff">分片 3</text>
+  <text x="750" y="104" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">id 7 ~ 9+（尾部）</text>
+  <rect x="694" y="124" width="112" height="14" rx="7" fill="#e06a6a" fill-opacity="0.15" stroke="#e06a6a" stroke-opacity="0.5"/>
+  <text x="750" y="134" text-anchor="middle" font-size="9.5" font-weight="600" fill="#e06a6a">负载 100% · 打满</text>
+
+  <rect x="80" y="150" width="140" height="60" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="102" cy="174" r="4" fill="#3d4478"/>
+  <text x="114" y="178" font-size="12" font-weight="700" fill="#8b91b8">分片 0</text>
+  <text x="150" y="196" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#5d6390">id 1 ~ 3（历史）</text>
+  <rect x="94" y="216" width="112" height="14" rx="7" fill="#ffffff" fill-opacity="0.04" stroke="#343b6e"/>
+  <text x="150" y="226" text-anchor="middle" font-size="9.5" fill="#5d6390">负载 0% · 闲置</text>
+
+  <rect x="280" y="150" width="140" height="60" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="302" cy="174" r="4" fill="#3d4478"/>
+  <text x="314" y="178" font-size="12" font-weight="700" fill="#8b91b8">分片 1</text>
+  <text x="350" y="196" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#5d6390">id 4 ~ 6（历史）</text>
+  <rect x="294" y="216" width="112" height="14" rx="7" fill="#ffffff" fill-opacity="0.04" stroke="#343b6e"/>
+  <text x="350" y="226" text-anchor="middle" font-size="9.5" fill="#5d6390">负载 0% · 闲置</text>
+
+  <rect x="480" y="150" width="140" height="60" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <circle cx="502" cy="174" r="4" fill="#3d4478"/>
+  <text x="514" y="178" font-size="12" font-weight="700" fill="#8b91b8">分片 2</text>
+  <text x="550" y="196" text-anchor="middle" font-size="9.5" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#5d6390">id 7 ~ 9（历史）</text>
+  <rect x="494" y="216" width="112" height="14" rx="7" fill="#ffffff" fill-opacity="0.04" stroke="#343b6e"/>
+  <text x="550" y="226" text-anchor="middle" font-size="9.5" fill="#5d6390">负载 0% · 闲置</text>
+
+  <g>
+    <circle r="8" fill="#e06a6a" opacity="0.3"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 280,78 C 420,70 560,66 662,72"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#f09090"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 280,78 C 420,70 560,66 662,72"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="8" fill="#e06a6a" opacity="0.3"><animateMotion dur="2s" begin="1s" repeatCount="indefinite" path="M 280,78 C 420,70 560,66 662,72"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.12;0.88;1" dur="2s" begin="1s" repeatCount="indefinite"/></circle>
+    <circle r="3.5" fill="#f09090"><animateMotion dur="2s" begin="1s" repeatCount="indefinite" path="M 280,78 C 420,70 560,66 662,72"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.88;1" dur="2s" begin="1s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <line x1="60" y1="258" x2="840" y2="258" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <rect x="290" y="274" width="320" height="24" rx="12" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.35"/>
+  <text x="450" y="290" text-anchor="middle" font-size="11.5" font-weight="600" fill="#3ecf8e">对比 · 哈希取模分片：负载均匀打散</text>
+
+  <rect x="80" y="312" width="200" height="54" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <circle cx="102" cy="339" r="4.5" fill="#3ecf8e"/>
+  <text x="116" y="343" font-size="12.5" font-weight="700" fill="#ffffff">连续写入 ID 7,8,9…</text>
+
+  <path d="M 280,330 C 340,326 370,348 392,362" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#t-arrG)"/>
+  <path d="M 280,336 C 330,340 350,364 362,388" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#t-arrG)"/>
+  <path d="M 280,342 C 300,352 310,378 312,414" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#t-arrG)"/>
+  <path d="M 280,348 C 292,360 296,396 298,440" fill="none" stroke="#3ecf8e" stroke-width="2" marker-end="url(#t-arrG)"/>
+  <text x="330" y="322" text-anchor="middle" font-size="10.5" font-weight="600" fill="#3ecf8e">hash(id) % 4 轮流落各片</text>
+
+  <rect x="400" y="322" width="400" height="66" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="428" y="348" font-size="12.5" font-weight="700" fill="#ffffff">分片 0</text>
+  <text x="772" y="348" text-anchor="end" font-size="10" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">hash%4=0 → id 8</text>
+  <rect x="424" y="360" width="100" height="10" rx="5" fill="#3ecf8e" fill-opacity="0.2" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="474" y="382" text-anchor="middle" font-size="9.5" fill="#3ecf8e">负载 25%</text>
+
+  <rect x="400" y="408" width="400" height="66" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="428" y="434" font-size="12.5" font-weight="700" fill="#ffffff">分片 1</text>
+  <text x="772" y="434" text-anchor="end" font-size="10" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">hash%4=1 → id 9</text>
+  <rect x="424" y="446" width="100" height="10" rx="5" fill="#3ecf8e" fill-opacity="0.2" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="474" y="468" text-anchor="middle" font-size="9.5" fill="#3ecf8e">负载 25%</text>
+
+  <rect x="400" y="494" width="400" height="66" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="428" y="520" font-size="12.5" font-weight="700" fill="#ffffff">分片 2</text>
+  <text x="772" y="520" text-anchor="end" font-size="10" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">hash%4=2 → id 10</text>
+  <rect x="424" y="532" width="100" height="10" rx="5" fill="#3ecf8e" fill-opacity="0.2" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="474" y="554" text-anchor="middle" font-size="9.5" fill="#3ecf8e">负载 25%</text>
+
+  <rect x="400" y="580" width="400" height="66" rx="12" fill="#171b3a" stroke="#343b6e"/>
+  <text x="428" y="606" font-size="12.5" font-weight="700" fill="#ffffff">分片 3</text>
+  <text x="772" y="606" text-anchor="end" font-size="10" font-family="ui-monospace, Menlo, Consolas, monospace" fill="#8b91b8">hash%4=3 → id 7</text>
+  <rect x="424" y="618" width="100" height="10" rx="5" fill="#3ecf8e" fill-opacity="0.2" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="474" y="640" text-anchor="middle" font-size="9.5" fill="#3ecf8e">负载 25%</text>
+
+  <g>
+    <circle r="7" fill="#3ecf8e" opacity="0.3"><animateMotion dur="3s" begin="0s" repeatCount="indefinite" path="M 280,330 C 340,326 370,348 392,362"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#7fe3b0"><animateMotion dur="3s" begin="0s" repeatCount="indefinite" path="M 280,330 C 340,326 370,348 392,362"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#3ecf8e" opacity="0.3"><animateMotion dur="3s" begin="0.7s" repeatCount="indefinite" path="M 280,336 C 330,340 350,364 362,388"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="0.7s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#7fe3b0"><animateMotion dur="3s" begin="0.7s" repeatCount="indefinite" path="M 280,336 C 330,340 350,364 362,388"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="0.7s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#3ecf8e" opacity="0.3"><animateMotion dur="3s" begin="1.4s" repeatCount="indefinite" path="M 280,342 C 300,352 310,378 312,414"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="1.4s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#7fe3b0"><animateMotion dur="3s" begin="1.4s" repeatCount="indefinite" path="M 280,342 C 300,352 310,378 312,414"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="1.4s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="7" fill="#3ecf8e" opacity="0.3"><animateMotion dur="3s" begin="2.1s" repeatCount="indefinite" path="M 280,348 C 292,360 296,396 298,440"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="2.1s" repeatCount="indefinite"/></circle>
+    <circle r="3" fill="#7fe3b0"><animateMotion dur="3s" begin="2.1s" repeatCount="indefinite" path="M 280,348 C 292,360 296,396 298,440"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="3s" begin="2.1s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="130" y="720" width="10" height="10" rx="2" fill="#e06a6a"/>
+  <text x="146" y="729" font-size="11" fill="#cdd5ff">写入集中 → 尾部热点</text>
+  <rect x="370" y="720" width="10" height="10" rx="2" fill="#3ecf8e"/>
+  <text x="386" y="729" font-size="11" fill="#cdd5ff">写入打散 → 负载均衡</text>
+
+  <text x="450" y="776" text-anchor="middle" font-size="11.5" fill="#8b91b8">本质：写入有「顺序」（自增 ID、时间戳、日志追加），而分片按「范围」划分 → 新数据永远去最后一片</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>什么是尾部热点</h2>
+    <ul>
+      <li><strong>定义</strong>：数据按<strong>自增 ID 或时间顺序</strong>追加写入，而分片按<strong>范围（Range）</strong>划分——最新的数据永远落在「最大区间」的最后一个分片上，写入压力全部集中在尾部，前面的分片完全闲置</li>
+      <li><span class="r">后果</span>：分片集群被退化成单机——N 台机器只有 1 台在干活，写入瓶颈一点没解决；尾部那台被打满时，整体写入还是会崩</li>
+      <li><span class="g">对照</span>：换成哈希取模分片，连续 ID 被打散轮流落到各片，负载均匀——但代价是范围查询全废（见<a href="../../mysql/分库分表/分库分表.html" style="color:#93b4f5">分库分表</a>的取舍）</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>典型场景</h2>
+    <table>
+      <tr><th>场景</th><th>尾部热点是怎么来的</th></tr>
+      <tr>
+        <td>日志 / 流水表按<strong>时间范围</strong>分片</td>
+        <td>按月分片（2026-01 → 片 0，2026-02 → 片 1…）：当前月的写入永远全压最新那一片，历史月份只读不写</td>
+      </tr>
+      <tr>
+        <td>按<strong>自增 ID 范围</strong>分片</td>
+        <td>id 1~1000万 → 片 0，1000万~2000万 → 片 1…：新插入 id 只涨不降，永远写尾部</td>
+      </tr>
+      <tr>
+        <td>MongoDB 用<strong>自增/时间字段做片键</strong></td>
+        <td>chunk 按片键范围划分，自增片键导致所有 insert 进最大 chunk，触发不停的分裂与迁移</td>
+      </tr>
+      <tr>
+        <td>Kafka 消息按<strong>时间戳哈希</strong>分区</td>
+        <td>所有消息进同一分区，消费端也只能单线程消费，吞吐上不去</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>解决办法</h2>
+    <ul>
+      <li><strong>① 换哈希分片（最常用）</strong>：分片键改成 <code>hash(user_id) % N</code> 或 <code>user_id % N</code>，写入天然打散；范围查询需求交给 ES / 数仓</li>
+      <li><strong>② 分片键加盐（Salted Key）</strong>：既要时间有序又要打散——用 <code>hash(时间戳 + 随机后缀) </code>或 <code>时间戳 + hash(id) % K</code> 做片键，把同一时间段的数据撒到 K 个分片，牺牲部分范围查询效率换负载均衡</li>
+      <li><strong>③ 预分桶（Pre-split）</strong>：建表时就把尾部分片拆成多个小桶，写入被分摊到多个桶（MongoDB 预分 chunk、HBase 预分区都是这个思路）</li>
+      <li><strong>④ 业务层错峰</strong>：日志/统计类写入先落 MQ 缓冲，消费端均匀写入各分片，削掉瞬时尖峰</li>
+    </ul>
+  </section>
+
+  <div class="tip">面试一句话：尾部热点 = 「写入有顺序 + 分片按范围」的必然结果，新数据全压最后一片；解法是<strong>哈希打散（首选）</strong>、<strong>分片键加盐</strong>或<strong>预分桶</strong>——用范围查询能力换负载均衡。</div>
+
+  <p class="nav"><a href="../../mysql/分库分表/分库分表.html">← 分库分表（水平拆分）</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
