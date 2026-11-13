@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 如何识别图片中的文字（OCR）· 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-r { color: var(--red); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  a.inline { color: #93b4f5; text-decoration: none; }
+  a.inline:hover { text-decoration: underline; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LLM 如何识别图片中的文字（OCR）</h1>
+    <p class="sub">
+      <b>先澄清：LLM 识字用的<span class="no-r">不是 OCR 技术</span></b>——它和看猫看山走的是同一条端到端流程，「OCR」在这里只是「识别图中文字」的通俗说法。
+      通用流程遇到小字会翻车：字比 patch 还小，被拦腰切碎、糊成碎片。
+      识字靠的是两个补丁——<span class="no-g">动态高清切块</span>保证字形完整，
+      再加<span class="no-p">海量「字形 ↔ 字符」训练</span>建立形状到文字的关联。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1210" viewBox="0 0 900 1210" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="ocr-arrR" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#e06a6a"/>
+    </marker>
+    <marker id="ocr-arrG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#3ecf8e"/>
+    </marker>
+    <marker id="ocr-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/>
+    </marker>
+    <marker id="ocr-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/>
+    </marker>
+    <filter id="ocr-blur"><feGaussianBlur stdDeviation="2.5"/></filter>
+    <clipPath id="ocr-frag"><rect x="110" y="275" width="90" height="90" rx="8"/></clipPath>
+    <clipPath id="ocr-t1"><rect x="300" y="930" width="70" height="70" rx="8"/></clipPath>
+    <clipPath id="ocr-t2"><rect x="430" y="930" width="70" height="70" rx="8"/></clipPath>
+    <clipPath id="ocr-t3"><rect x="300" y="1050" width="70" height="70" rx="8"/></clipPath>
+    <clipPath id="ocr-t4"><rect x="430" y="1050" width="70" height="70" rx="8"/></clipPath>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1210" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">文字识别 = 通用识图流程 + 两个补丁：高清切块 + 识字训练</text>
+  <line x1="228" y1="34" x2="312" y2="34" stroke="#343b6e"/>
+  <line x1="588" y1="34" x2="672" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== 补丁一：高清切块对比 ===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1" fill="#8b91b8">补丁一 · 高清切块：让字形完整落在 patch 里</text>
+
+  <!-- 左栏：翻车 -->
+  <text x="250" y="112" text-anchor="middle" font-size="12" font-weight="700" fill="#f09090">直接切：字比 patch 还小</text>
+  <rect x="100" y="130" width="300" height="100" rx="8" fill="#1a1f42"/>
+  <text x="250" y="190" text-anchor="middle" font-size="20" fill="#e7eaf6">出口 EXIT 2F</text>
+  <line x1="175" y1="130" x2="175" y2="230" stroke="#e06a6a" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <line x1="250" y1="130" x2="250" y2="230" stroke="#e06a6a" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <line x1="325" y1="130" x2="325" y2="230" stroke="#e06a6a" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <line x1="100" y1="180" x2="400" y2="180" stroke="#e06a6a" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <rect x="100" y="130" width="300" height="100" rx="8" fill="none" stroke="#343b6e" stroke-width="1.5"/>
+  <text x="250" y="252" text-anchor="middle" font-size="9.5" fill="#8b91b8">一行字被拦腰切断，每格只剩笔画碎片</text>
+
+  <rect x="110" y="275" width="90" height="90" rx="8" fill="#1a1f42" stroke="#e06a6a" stroke-opacity="0.5"/>
+  <g clip-path="url(#ocr-frag)">
+    <text x="118" y="352" font-size="72" fill="#8b91b8" filter="url(#ocr-blur)">出口</text>
+  </g>
+  <text x="155" y="385" text-anchor="middle" font-size="9" fill="#8b91b8">patch 放大：糊成一团</text>
+
+  <path d="M 205,320 L 278,320" fill="none" stroke="#e06a6a" stroke-width="1.8" marker-end="url(#ocr-arrR)"/>
+  <g>
+    <circle r="5" fill="#e06a6a" opacity="0.3"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 205,320 L 276,320"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#f09090"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 205,320 L 276,320"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <rect x="285" y="295" width="54" height="54" rx="8" fill="#5d6390" fill-opacity="0.25" stroke="#5d6390"/>
+  <text x="312" y="330" text-anchor="middle" font-size="15" fill="#8b91b8">V?</text>
+  <text x="352" y="328" font-size="11.5" font-weight="700" fill="#f09090">→ 瞎猜乱码 ✗</text>
+
+  <!-- 中间分隔 -->
+  <line x1="470" y1="100" x2="470" y2="400" stroke="#2a3060" stroke-dasharray="2 4"/>
+
+  <!-- 右栏：正确 -->
+  <text x="650" y="112" text-anchor="middle" font-size="12" font-weight="700" fill="#7fe3b0">高清切块：一个字占满多个 patch</text>
+  <rect x="500" y="130" width="300" height="100" rx="8" fill="#1a1f42"/>
+  <text x="650" y="196" text-anchor="middle" font-size="32" fill="#e7eaf6">出口 EXIT 2F</text>
+  <line x1="550" y1="130" x2="550" y2="230" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="600" y1="130" x2="600" y2="230" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="650" y1="130" x2="650" y2="230" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="700" y1="130" x2="700" y2="230" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="750" y1="130" x2="750" y2="230" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="500" y1="163" x2="800" y2="163" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <line x1="500" y1="196" x2="800" y2="196" stroke="#3ecf8e" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+  <rect x="500" y="130" width="300" height="100" rx="8" fill="none" stroke="#343b6e" stroke-width="1.5"/>
+  <text x="650" y="252" text-anchor="middle" font-size="9.5" fill="#8b91b8">切块跟着图片分辨率走，字形完整落格</text>
+
+  <rect x="510" y="275" width="90" height="90" rx="8" fill="#1a1f42" stroke="#3ecf8e" stroke-opacity="0.5"/>
+  <text x="555" y="338" text-anchor="middle" font-size="44" fill="#e7eaf6">出</text>
+  <text x="555" y="385" text-anchor="middle" font-size="9" fill="#8b91b8">patch 放大：笔画清晰</text>
+
+  <path d="M 605,320 L 678,320" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#ocr-arrG)"/>
+  <g>
+    <circle r="5" fill="#3ecf8e" opacity="0.3"><animateMotion dur="2s" begin="1s" repeatCount="indefinite" path="M 605,320 L 676,320"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="1s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#7fe3b0"><animateMotion dur="2s" begin="1s" repeatCount="indefinite" path="M 605,320 L 676,320"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="1s" repeatCount="indefinite"/></circle>
+  </g>
+  <rect x="685" y="295" width="54" height="54" rx="8" fill="#a06ee1" fill-opacity="0.7" stroke="#a06ee1"/>
+  <text x="712" y="330" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">V</text>
+  <text x="752" y="328" font-size="11.5" font-weight="700" fill="#7fe3b0">→「出口」✓</text>
+
+  <line x1="60" y1="430" x2="840" y2="430" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <!-- ===== 补丁二：识字训练 ===== -->
+  <circle cx="70" cy="458" r="11" fill="#a06ee1"/>
+  <text x="70" y="463" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="463" font-size="11.5" letter-spacing="1" fill="#8b91b8">补丁二 · 识字训练：海量「字形 ↔ 字符」对，建立形状到文字的关联</text>
+  <text x="560" y="478" font-size="9.5" fill="#8b91b8">训练数据：千万级图文对</text>
+
+  <rect x="80" y="488" width="220" height="100" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <rect x="100" y="500" width="180" height="52" rx="6" fill="#11163a"/>
+  <text x="190" y="537" text-anchor="middle" font-size="30" fill="#ffffff">停</text>
+  <text x="190" y="576" text-anchor="middle" font-size="10.5" fill="#7fe3b0">↳ 标签文字：停</text>
+
+  <rect x="340" y="488" width="220" height="100" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <rect x="360" y="500" width="180" height="52" rx="6" fill="#11163a"/>
+  <text x="450" y="536" text-anchor="middle" font-size="24" fill="#ffffff">出口 EXIT</text>
+  <text x="450" y="576" text-anchor="middle" font-size="10.5" fill="#7fe3b0">↳ 标签文字：出口 EXIT</text>
+
+  <rect x="600" y="488" width="220" height="100" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <rect x="620" y="500" width="180" height="52" rx="6" fill="#11163a"/>
+  <text x="710" y="537" text-anchor="middle" font-size="16" fill="#ffffff">营业中 9:00-22:00</text>
+  <text x="710" y="576" text-anchor="middle" font-size="10.5" fill="#7fe3b0">↳ 标签文字：营业中 9:00-22:00</text>
+
+  <path d="M 450,590 L 450,616" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#ocr-arrP)"/>
+  <text x="470" y="608" font-size="9.5" fill="#8b91b8">训练</text>
+  <g>
+    <circle r="5" fill="#a06ee1" opacity="0.3"><animateMotion dur="1.5s" begin="0.3s" repeatCount="indefinite" path="M 450,590 L 450,614"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.5s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#c4aef5"><animateMotion dur="1.5s" begin="0.3s" repeatCount="indefinite" path="M 450,590 L 450,614"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.5s" begin="0.3s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="200" y="618" width="500" height="66" rx="12" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.5"/>
+  <text x="450" y="644" text-anchor="middle" font-size="10.5" fill="#c3c9e8">ViT 把笔画形状编码成 token 模式（跟猫毛纹理没有本质区别）</text>
+  <text x="450" y="668" text-anchor="middle" font-size="10.5" fill="#c3c9e8">训练建立关联：<tspan font-weight="700" fill="#c4aef5">这种 token 模式 → 这个字</tspan>（跟小孩识字一样）</text>
+
+  <!-- 推理示例 -->
+  <text x="180" y="704" text-anchor="middle" font-size="9.5" fill="#8b91b8">新图输入</text>
+  <rect x="80" y="712" width="200" height="60" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="180" y="752" text-anchor="middle" font-size="26" fill="#e7eaf6">出口 →</text>
+
+  <path d="M 288,742 L 358,742" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#ocr-arrO)"/>
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M 288,742 L 356,742"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M 288,742 L 356,742"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="365" y="712" width="150" height="60" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.6"/>
+  <text x="440" y="748" text-anchor="middle" font-size="13" font-weight="700" fill="#8fb3f7">LLM</text>
+
+  <path d="M 523,742 L 593,742" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#ocr-arrG)"/>
+  <g>
+    <circle r="5" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.8s" begin="0.7s" repeatCount="indefinite" path="M 523,742 L 591,742"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.7s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#7fe3b0"><animateMotion dur="1.8s" begin="0.7s" repeatCount="indefinite" path="M 523,742 L 591,742"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.7s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="600" y="712" width="220" height="60" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+  <text x="615" y="733" font-size="9" fill="#8b91b8">按阅读顺序（从左到右）输出：</text>
+  <g font-size="20" font-weight="700" fill="#7fe3b0">
+    <text x="640" y="762" opacity="0">出<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.88;1" dur="3s" begin="0s" repeatCount="indefinite"/></text>
+    <text x="672" y="762" opacity="0">口<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.88;1" dur="3s" begin="0.5s" repeatCount="indefinite"/></text>
+    <text x="704" y="762" opacity="0">→<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.88;1" dur="3s" begin="1s" repeatCount="indefinite"/></text>
+  </g>
+
+  <line x1="60" y1="866" x2="840" y2="866" stroke="#262c52" stroke-dasharray="2 4"/>
+
+  <!-- ===== ③ 追问：多块如何拼回一个字 ===== -->
+  <circle cx="70" cy="894" r="11" fill="#a06ee1"/>
+  <text x="70" y="899" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="899" font-size="11.5" letter-spacing="1" fill="#8b91b8">追问：字被切成多块，怎么「拼」回去？—— 不拼，注意力自动关联</text>
+
+  <!-- 原字 2×2 -->
+  <rect x="80" y="920" width="150" height="150" rx="10" fill="#1a1f42"/>
+  <text x="155" y="1030" text-anchor="middle" font-size="100" fill="#e7eaf6">出</text>
+  <line x1="155" y1="920" x2="155" y2="1070" stroke="#a06ee1" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <line x1="80" y1="995" x2="230" y2="995" stroke="#a06ee1" stroke-width="1" stroke-dasharray="3 3" opacity="0.7"/>
+  <rect x="80" y="920" width="150" height="150" rx="10" fill="none" stroke="#343b6e" stroke-width="1.5"/>
+  <text x="155" y="1095" text-anchor="middle" font-size="9.5" fill="#8b91b8">「出」被 2×2 切成 4 块</text>
+
+  <path d="M 240,995 L 290,995" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#ocr-arrP)"/>
+  <g>
+    <circle r="5" fill="#a06ee1" opacity="0.3"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 240,995 L 288,995"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#c4aef5"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 240,995 L 288,995"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 4 个 token 块（拉开间距，带位置坐标） -->
+  <text x="405" y="922" text-anchor="middle" font-size="9.5" fill="#8b91b8">每个 token 自带位置坐标；自注意力让 4 块互相「看」</text>
+
+  <rect x="300" y="930" width="70" height="70" rx="8" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <g clip-path="url(#ocr-t1)"><text x="310" y="1100" font-size="160" fill="#e7eaf6" opacity="0.35">出</text></g>
+  <text x="335" y="962" text-anchor="middle" font-size="15" font-weight="700" fill="#c4aef5">t₁</text>
+  <text x="335" y="982" text-anchor="middle" font-size="8.5" fill="#8b91b8">(0,0)</text>
+
+  <rect x="430" y="930" width="70" height="70" rx="8" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <g clip-path="url(#ocr-t2)"><text x="310" y="1100" font-size="160" fill="#e7eaf6" opacity="0.35">出</text></g>
+  <text x="465" y="962" text-anchor="middle" font-size="15" font-weight="700" fill="#c4aef5">t₂</text>
+  <text x="465" y="982" text-anchor="middle" font-size="8.5" fill="#8b91b8">(0,1)</text>
+
+  <rect x="300" y="1050" width="70" height="70" rx="8" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <g clip-path="url(#ocr-t3)"><text x="310" y="1100" font-size="160" fill="#e7eaf6" opacity="0.35">出</text></g>
+  <text x="335" y="1082" text-anchor="middle" font-size="15" font-weight="700" fill="#c4aef5">t₃</text>
+  <text x="335" y="1102" text-anchor="middle" font-size="8.5" fill="#8b91b8">(1,0)</text>
+
+  <rect x="430" y="1050" width="70" height="70" rx="8" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <g clip-path="url(#ocr-t4)"><text x="310" y="1100" font-size="160" fill="#e7eaf6" opacity="0.35">出</text></g>
+  <text x="465" y="1082" text-anchor="middle" font-size="15" font-weight="700" fill="#c4aef5">t₄</text>
+  <text x="465" y="1102" text-anchor="middle" font-size="8.5" fill="#8b91b8">(1,1)</text>
+
+  <!-- 注意力连线 -->
+  <path d="M 370,965 L 430,965" fill="none" stroke="#a06ee1" stroke-width="2.5" opacity="0.8"/>
+  <path d="M 370,1085 L 430,1085" fill="none" stroke="#a06ee1" stroke-width="2.5" opacity="0.8"/>
+  <path d="M 335,1000 L 335,1050" fill="none" stroke="#a06ee1" stroke-width="2.5" opacity="0.8"/>
+  <path d="M 465,1000 L 465,1050" fill="none" stroke="#a06ee1" stroke-width="2.5" opacity="0.8"/>
+  <path d="M 366,996 L 434,1054" fill="none" stroke="#a06ee1" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/>
+  <path d="M 434,996 L 366,1054" fill="none" stroke="#a06ee1" stroke-width="1" stroke-dasharray="2 2" opacity="0.5"/>
+
+  <g>
+    <circle r="4.5" fill="#a06ee1" opacity="0.3"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 370,965 L 428,965"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#c4aef5"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 370,965 L 428,965"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <g>
+    <circle r="4.5" fill="#a06ee1" opacity="0.3"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 335,1000 L 335,1048"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#c4aef5"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 335,1000 L 335,1048"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 进 LLM -->
+  <path d="M 508,1010 L 562,1010" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#ocr-arrP)"/>
+  <rect x="570" y="940" width="250" height="55" rx="12" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.6"/>
+  <text x="695" y="964" text-anchor="middle" font-size="13" font-weight="700" fill="#8fb3f7">LLM</text>
+  <text x="695" y="982" text-anchor="middle" font-size="8.5" fill="#8b91b8">生成时注意力聚焦这 4 块</text>
+
+  <path d="M 695,997 L 695,1014" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#ocr-arrG)"/>
+  <rect x="570" y="1016" width="250" height="55" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+  <text x="695" y="1050" text-anchor="middle" font-size="15" font-weight="700" fill="#7fe3b0">认出：「出」✓</text>
+
+  <text x="450" y="1140" text-anchor="middle" font-size="10.5" fill="#c3c9e8">从头到尾没有「合并」这一步：位置编码记住每块在哪，多层自注意力把碎片信息聚合起来 → 看碎片便知整字</text>
+
+  <text x="450" y="1180" text-anchor="middle" font-size="11.5" fill="#8b91b8">一句话：先保证字不被切碎（高清切块），再让模型记住「这种形状 = 这个字」（识字训练）——识字没有魔法，全是分辨率和数据</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>为什么通用流程遇到文字会翻车</h2>
+    <ul>
+      <li><span class="r">patch 是固定大小的</span>（如 14×14 像素）：一行 20px 高的字，横向被切、纵向拦腰，每个 patch 只剩几笔碎片</li>
+      <li><strong>ViT 再强也编不出「没看清」的字</strong>：token 里信息不足，模型只能瞎猜 → 这就是文字场景常见的「幻觉乱码」</li>
+      <li>字越小、排版越密（文档、票据、表格），翻车越狠</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>补丁一：动态高清切块</h2>
+    <ul>
+      <li><strong>思路</strong>：图片多大就给多少 token，不再一刀切压缩到低分辨率</li>
+      <li><span class="p">Qwen2-VL</span>：Naive Dynamic Resolution——按原图分辨率切块，token 数量随图大小伸缩</li>
+      <li><span class="p">InternVL / LLaVA-NeXT</span>：大图切成多张 448×448 子图分别编码，再加一张全局缩略图保留整体</li>
+      <li><span class="g">效果</span>：一个字从「半个 patch」变成「4+ 个 patch」，笔画完整 → token 信息足够</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>补丁二：识字训练（字形 → 字符的关联）</h2>
+    <ul>
+      <li><strong>字形也是像素模式</strong>：「出」字 5 笔在 patch 里是稳定的视觉模式，跟猫毛纹理没有本质区别</li>
+      <li><span class="p">千万级图文对</span>（文档截图、街景招牌、手写体……）让模型建立关联：<strong>这种 token 模式 = 这个字</strong></li>
+      <li><span class="b">阅读顺序从哪来</span>：训练标签按「从左到右、从上到下」标注 + 2D 位置编码保留空间信息 → 模型按顺序吐字，而不是随机蹦字</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">04</span>追问：一个字占多个 patch，怎么「拼」回去</h2>
+    <ul>
+      <li><strong>没有「合并」这一步</strong>：模型从不把几块碎片拼回整字——就像 subword 分词（un + believ + able）也不需要先拼回完整单词</li>
+      <li><span class="p">① 位置编码</span>：每个 token 自带「第几行第几列」的坐标，4 块碎片的空间关系不丢</li>
+      <li><span class="p">② 多层自注意力</span>：相邻 token 互相「看」，几层 Transformer 之后，每块都融合了整字的信息（感受野覆盖整个字甚至整行）</li>
+      <li><span class="p">③ 训练强化</span>：监督信号是完整文字，模型被迫学会「这几块凑在一起 = 出」</li>
+      <li><span class="g">类比</span>：人看拼图也不用真拼起来——眼睛扫过几块，就知道是什么图案</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">05</span>传统 OCR vs LLM 识字</h2>
+    <table>
+      <tr><th></th><th>传统 OCR（DBNet + CRNN）</th><th>多模态 LLM</th></tr>
+      <tr>
+        <td>流程</td>
+        <td>先检测文字框 → 逐框识别，两阶段</td>
+        <td>端到端：看图直接输出文字/答案</td>
+      </tr>
+      <tr>
+        <td>优势</td>
+        <td>小字密集文档稳、快、成本低</td>
+        <td>识字 + 理解一体：能直接答「这家店几点关门」</td>
+      </tr>
+      <tr>
+        <td>短板</td>
+        <td>只转文字，不懂意思</td>
+        <td>看不清会「脑补」（幻觉），超长文档费 token</td>
+      </tr>
+      <tr>
+        <td>适用</td>
+        <td>票据、证件、批量录入</td>
+        <td>问答式理解、图表、手写 + 语义场景</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：LLM 识字 = 通用识图流程 + 两个补丁——①<strong>动态高清切块</strong>，保证字形完整不被 patch 切碎；②<strong>海量「字形 ↔ 文字」训练对</strong>，建立形状到字符的关联并按阅读顺序输出。但看不清时它会「脑补」，票据证件等关键场景仍要用专用 OCR 兜底。</div>
+
+  <p class="nav"><a href="../../LLM/LLM如何识别图片/LLM如何识别图片.html">← LLM 如何识别图片</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>

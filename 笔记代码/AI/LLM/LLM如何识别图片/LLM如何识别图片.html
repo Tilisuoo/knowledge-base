@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM 如何识别图片 · 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-f { color: var(--pink); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .f { color: var(--pink); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LLM 如何识别图片</h1>
+    <p class="sub">
+      LLM 没有眼睛——它只是把图片「翻译」成了 token（一小块信息的数字代号）：
+      <span class="no-o">切块 Patch</span> → <span class="no-p">ViT 读出每块特征</span> →
+      <span class="no-f">Projector 翻译成「文字语」</span> → 和<span class="no-g">文字 token</span> 排成一队，统一理解、逐字生成。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1105" viewBox="0 0 900 1105" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="mm-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/>
+    </marker>
+    <marker id="mm-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/>
+    </marker>
+    <marker id="mm-arrF" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#e06a9d"/>
+    </marker>
+    <marker id="mm-arrB" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#5b8def"/>
+    </marker>
+    <marker id="mm-arrG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#3ecf8e"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1105" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">流水线：图片 → 视觉 token → 与文字同序列进 LLM → 生成回答</text>
+  <line x1="222" y1="34" x2="310" y2="34" stroke="#343b6e"/>
+  <line x1="590" y1="34" x2="678" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== ① 切块 ===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1"><tspan fill="#f6a04d" font-weight="700">切块 Patch</tspan><tspan fill="#8b91b8">：把图片切成很多小方块（只切像素，不做识别）</tspan></text>
+
+  <!-- 图片卡 -->
+  <rect x="90" y="98" width="140" height="140" rx="8" fill="#1a1f42"/>
+  <circle cx="195" cy="130" r="12" fill="#f6a04d" opacity="0.9"/>
+  <path d="M 100,225 L 140,175 L 175,225 z" fill="#5b8def" opacity="0.5"/>
+  <path d="M 148,225 L 190,168 L 226,225 z" fill="#a06ee1" opacity="0.5"/>
+  <line x1="137" y1="98" x2="137" y2="238" stroke="#8b91b8" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <line x1="183" y1="98" x2="183" y2="238" stroke="#8b91b8" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <line x1="90" y1="145" x2="230" y2="145" stroke="#8b91b8" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <line x1="90" y1="192" x2="230" y2="192" stroke="#8b91b8" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <rect x="183" y="98" width="47" height="47" rx="4" fill="#f6a04d" fill-opacity="0.15" stroke="#f6a04d" stroke-width="1.8"/>
+  <rect x="90" y="98" width="140" height="140" rx="8" fill="none" stroke="#343b6e" stroke-width="1.5"/>
+
+  <path d="M 240,168 L 292,168" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <text x="266" y="192" text-anchor="middle" font-size="9.5" fill="#8b91b8">3×3 = 9 块</text>
+
+  <!-- Patch 阵列 -->
+  <g font-size="8.5" fill="#5d6390" text-anchor="middle">
+    <rect x="305" y="95" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="326" y="131">1</text>
+    <rect x="357" y="95" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="378" y="131">2</text>
+    <rect x="409" y="95" width="42" height="42" rx="6" fill="#f6a04d" fill-opacity="0.15" stroke="#f6a04d"/>
+    <circle cx="424" cy="110" r="6" fill="#f6a04d" opacity="0.9"/><text x="430" y="131">3</text>
+    <rect x="305" y="147" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="326" y="183">4</text>
+    <rect x="357" y="147" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="378" y="183">5</text>
+    <rect x="409" y="147" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="430" y="183">6</text>
+    <rect x="305" y="199" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="326" y="235">7</text>
+    <rect x="357" y="199" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="378" y="235">8</text>
+    <rect x="409" y="199" width="42" height="42" rx="6" fill="#1a1f42" stroke="#343b6e"/><text x="430" y="235">9</text>
+  </g>
+
+  <!-- 澄清卡：切块 ≠ 识别 -->
+  <rect x="505" y="98" width="345" height="140" rx="12" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="525" y="128" font-size="11.5" font-weight="700" fill="#ffc069">注意：切块 ≠ 识别</text>
+  <text x="525" y="154" font-size="10.5" fill="#c3c9e8">切的只是像素格子，此刻还没有「认出」任何东西</text>
+  <text x="525" y="176" font-size="10.5" fill="#c3c9e8">图里是猫、是山、还是文字——都一视同仁</text>
+  <text x="525" y="205" font-size="9.5" fill="#8b91b8">「认出是什么」是第②步 ViT + 训练的事 →</text>
+
+  <!-- ① 光点：图片高亮 patch → 阵列 patch3 -->
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="2.2s" begin="0s" repeatCount="indefinite" path="M 206,121 C 260,108 360,104 422,110"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.85;1" dur="2.2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="2.2s" begin="0s" repeatCount="indefinite" path="M 206,121 C 260,108 360,104 422,110"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- ===== ② 编码 ===== -->
+  <circle cx="70" cy="274" r="11" fill="#a06ee1"/>
+  <text x="70" y="279" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="279" font-size="11.5" letter-spacing="1"><tspan fill="#c4aef5" font-weight="700">ViT 编码</tspan><tspan fill="#8b91b8">：读出每块长什么样 → 变成一串数字（视觉 token）</tspan></text>
+
+  <path d="M 378,241 C 380,268 448,272 450,298" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <g>
+    <circle r="5" fill="#a06ee1" opacity="0.3"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite" path="M 378,241 C 380,268 448,272 450,296"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.5s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#c4aef5"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite" path="M 378,241 C 380,268 448,272 450,296"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.5s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="250" y="300" width="400" height="60" rx="12" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="450" y="330" text-anchor="middle" font-size="14" font-weight="700" fill="#c4aef5">视觉编码器 ViT（Vision Transformer）</text>
+  <text x="450" y="352" text-anchor="middle" font-size="9.5" fill="#8b91b8">读出每块的特征（形状 / 颜色 / 纹理）→ 压缩成一串数字</text>
+
+  <path d="M 450,362 L 450,383" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+
+  <!-- 视觉 token（未对齐，深浅不一） -->
+  <g font-size="9" fill="#e7d8ff" text-anchor="middle">
+    <rect x="256" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.35"><animate attributeName="fill-opacity" values="0.35;0.9;0.35" dur="2.6s" begin="0s" repeatCount="indefinite"/></rect><text x="274" y="408">V1</text>
+    <rect x="300" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.45"><animate attributeName="fill-opacity" values="0.45;0.95;0.45" dur="2.6s" begin="0.25s" repeatCount="indefinite"/></rect><text x="318" y="408">V2</text>
+    <rect x="344" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.55"><animate attributeName="fill-opacity" values="0.55;0.9;0.55" dur="2.6s" begin="0.5s" repeatCount="indefinite"/></rect><text x="362" y="408">V3</text>
+    <rect x="388" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.65"><animate attributeName="fill-opacity" values="0.65;0.95;0.65" dur="2.6s" begin="0.75s" repeatCount="indefinite"/></rect><text x="406" y="408">V4</text>
+    <rect x="432" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.5"><animate attributeName="fill-opacity" values="0.5;0.9;0.5" dur="2.6s" begin="1s" repeatCount="indefinite"/></rect><text x="450" y="408">V5</text>
+    <rect x="476" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.6"><animate attributeName="fill-opacity" values="0.6;0.95;0.6" dur="2.6s" begin="1.25s" repeatCount="indefinite"/></rect><text x="494" y="408">V6</text>
+    <rect x="520" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.4"><animate attributeName="fill-opacity" values="0.4;0.9;0.4" dur="2.6s" begin="1.5s" repeatCount="indefinite"/></rect><text x="538" y="408">V7</text>
+    <rect x="564" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.7"><animate attributeName="fill-opacity" values="0.7;0.95;0.7" dur="2.6s" begin="1.75s" repeatCount="indefinite"/></rect><text x="582" y="408">V8</text>
+    <rect x="608" y="385" width="36" height="36" rx="7" fill="#a06ee1" fill-opacity="0.55"><animate attributeName="fill-opacity" values="0.55;0.9;0.55" dur="2.6s" begin="2s" repeatCount="indefinite"/></rect><text x="626" y="408">V9</text>
+  </g>
+  <text x="665" y="408" font-size="9.5" fill="#8b91b8">还是「图片语」，LLM 听不懂</text>
+
+  <!-- 具象化：token 到底是什么 -->
+  <path d="M 362,423 C 340,430 280,432 252,436" fill="none" stroke="#5d6390" stroke-width="1" stroke-dasharray="2 3"/>
+  <rect x="60" y="434" width="340" height="54" rx="10" fill="#11163a" stroke="#343b6e"/>
+  <rect x="74" y="446" width="24" height="24" rx="5" fill="#a06ee1" fill-opacity="0.55"/>
+  <text x="86" y="463" text-anchor="middle" font-size="8" fill="#e7d8ff">V3</text>
+  <text x="106" y="463" font-size="12" fill="#8b91b8">=</text>
+  <text x="122" y="463" font-size="12" fill="#c4aef5">[0.9, -0.3, 0.7, …]</text>
+  <text x="74" y="481" font-size="8.5" fill="#8b91b8">这串数字＝这块的特征：圆形、橙色、在右上角……</text>
+
+  <!-- ===== ③ 对齐 ===== -->
+  <circle cx="70" cy="526" r="11" fill="#a06ee1"/>
+  <text x="70" y="531" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="531" font-size="11.5" letter-spacing="1"><tspan fill="#f2a9c4" font-weight="700">Projector 对齐</tspan><tspan fill="#8b91b8">：把「野生数字」换算成词表附近的数字，LLM 才听得懂</tspan></text>
+
+  <path d="M 450,423 L 450,546" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="5" fill="#e06a9d" opacity="0.3"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 450,423 L 450,544"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#f2a9c4"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 450,423 L 450,544"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 词表卡：LLM 只懂这套数字 -->
+  <rect x="60" y="550" width="300" height="110" rx="10" fill="#11163a" stroke="#5b8def" stroke-opacity="0.4"/>
+  <text x="78" y="573" font-size="10" font-weight="700" fill="#8fb3f7">LLM 的词表：每个词 = 一串约定的数字</text>
+  <text x="85" y="597" font-size="10.5" fill="#dfe4fa">「圆」</text>
+  <text x="135" y="597" font-size="9.5" fill="#c4aef5">[ 0.5,  0.1,  0.9, …]</text>
+  <text x="85" y="619" font-size="10.5" fill="#dfe4fa">「橙」</text>
+  <text x="135" y="619" font-size="9.5" fill="#c4aef5">[ 0.6, -0.2,  0.8, …]</text>
+  <text x="85" y="641" font-size="10.5" fill="#dfe4fa">「猫」</text>
+  <text x="135" y="641" font-size="9.5" fill="#c4aef5">[ 0.2,  0.8, -0.1, …]</text>
+
+  <!-- 野生数字卡 -->
+  <rect x="540" y="550" width="300" height="110" rx="10" fill="#11163a" stroke="#a06ee1" stroke-opacity="0.5"/>
+  <text x="558" y="573" font-size="10" font-weight="700" fill="#c4aef5">ViT 算出的「野生」数字</text>
+  <text x="558" y="600" font-size="11" fill="#e7d8ff">V3 = [0.9, -0.3, 0.7, …]</text>
+  <text x="558" y="622" font-size="11" fill="#e7d8ff">V5 = [-0.1, 0.4, 0.2, …]</text>
+  <text x="558" y="645" font-size="9.5" fill="#f09090">词表里查无此数 → LLM 看不懂</text>
+
+  <!-- 中间冲突 -->
+  <line x1="380" y1="608" x2="420" y2="608" stroke="#e06a6a" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <line x1="480" y1="608" x2="520" y2="608" stroke="#e06a6a" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+  <text x="450" y="617" text-anchor="middle" font-size="24" font-weight="800" fill="#f09090">≠</text>
+
+  <!-- 去换算器 -->
+  <path d="M 450,662 L 450,696" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <text x="468" y="684" font-size="9.5" fill="#8b91b8">练一个换算器</text>
+  <g>
+    <circle r="5" fill="#e06a9d" opacity="0.3"><animateMotion dur="1.6s" begin="0.6s" repeatCount="indefinite" path="M 450,662 L 450,694"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#f2a9c4"><animateMotion dur="1.6s" begin="0.6s" repeatCount="indefinite" path="M 450,662 L 450,694"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <rect x="280" y="700" width="340" height="55" rx="12" fill="#1a1f42" stroke="#e06a9d" stroke-opacity="0.55"/>
+  <text x="450" y="724" text-anchor="middle" font-size="12.5" font-weight="700" fill="#f2a9c4">Projector ＝ 换算器（小型神经网络）</text>
+  <text x="450" y="742" text-anchor="middle" font-size="8.5" fill="#8b91b8">用千万级「图片 ↔ 文字描述」练出两套数字的「汇率」</text>
+
+  <path d="M 450,757 L 450,786" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <text x="450" y="803" text-anchor="middle" font-size="10.5" fill="#8b91b8"><tspan fill="#8fb3f7" font-weight="600">V3′ ≈ 贴着「圆」「橙」的数字</tspan> → LLM 听懂了：「右上有个橙色的圆」✓</text>
+
+  <!-- ===== ④ 拼接 + LLM + 输出 ===== -->
+  <circle cx="70" cy="836" r="11" fill="#a06ee1"/>
+  <text x="70" y="841" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+  <text x="90" y="841" font-size="11.5" letter-spacing="1"><tspan fill="#7fe3b0" font-weight="700">拼接</tspan><tspan fill="#8b91b8">：图字 token 排一队进 LLM → 统一读、逐字答</tspan></text>
+
+  <path d="M 450,810 L 450,862" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <g>
+    <circle r="5" fill="#5b8def" opacity="0.3"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 450,810 L 450,860"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#8fb3f7"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 450,810 L 450,860"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 拼接序列 -->
+  <g font-size="8.5" fill="#e7d8ff" text-anchor="middle">
+    <rect x="256" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="274" y="889">V1</text>
+    <rect x="298" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="316" y="889">V2</text>
+    <rect x="340" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="358" y="889">V3</text>
+    <rect x="382" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="400" y="889">V4</text>
+    <rect x="424" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="442" y="889">V5</text>
+    <rect x="466" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="484" y="889">V6</text>
+    <rect x="508" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="526" y="889">V7</text>
+    <rect x="550" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="568" y="889">V8</text>
+    <rect x="592" y="866" width="36" height="38" rx="7" fill="#a06ee1" fill-opacity="0.8"/><text x="610" y="889">V9</text>
+  </g>
+  <g font-size="10" fill="#7fe3b0" text-anchor="middle">
+    <rect x="636" y="866" width="38" height="38" rx="7" fill="#3ecf8e" fill-opacity="0.15" stroke="#3ecf8e" stroke-opacity="0.55"/><text x="655" y="889">这</text>
+    <rect x="680" y="866" width="38" height="38" rx="7" fill="#3ecf8e" fill-opacity="0.15" stroke="#3ecf8e" stroke-opacity="0.55"/><text x="699" y="889">张图</text>
+    <rect x="724" y="866" width="38" height="38" rx="7" fill="#3ecf8e" fill-opacity="0.15" stroke="#3ecf8e" stroke-opacity="0.55"/><text x="743" y="889">里有</text>
+    <rect x="768" y="866" width="38" height="38" rx="7" fill="#3ecf8e" fill-opacity="0.15" stroke="#3ecf8e" stroke-opacity="0.55"/><text x="787" y="889">什么</text>
+    <rect x="812" y="866" width="38" height="38" rx="7" fill="#3ecf8e" fill-opacity="0.15" stroke="#3ecf8e" stroke-opacity="0.55"/><text x="831" y="889">？</text>
+  </g>
+
+  <path d="M 450,906 L 450,929" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <g>
+    <circle r="5" fill="#5b8def" opacity="0.3"><animateMotion dur="1.4s" begin="0.3s" repeatCount="indefinite" path="M 450,906 L 450,927"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.4s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#8fb3f7"><animateMotion dur="1.4s" begin="0.3s" repeatCount="indefinite" path="M 450,906 L 450,927"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.4s" begin="0.3s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- LLM 框 -->
+  <rect x="200" y="931" width="500" height="85" rx="14" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.6" stroke-width="1.5"/>
+  <text x="450" y="963" text-anchor="middle" font-size="15" font-weight="800" fill="#e7eaf6">LLM（Transformer）</text>
+  <text x="450" y="986" text-anchor="middle" font-size="10" fill="#8b91b8">眼里只有一排数字，不分「图」和「字」：每个 token 都互相关联（自注意力）</text>
+  <text x="450" y="1004" text-anchor="middle" font-size="10" fill="#8b91b8">然后像聊天一样，自回归逐字生成回答</text>
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="3s" begin="0s" repeatCount="indefinite" path="M 280,949 L 620,949"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.1;0.9;1" dur="3s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="3s" begin="0s" repeatCount="indefinite" path="M 280,949 L 620,949"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="3s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <path d="M 450,1016 L 450,1039" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#mm-arrG)"/>
+  <g>
+    <circle r="5" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.5s" begin="0.4s" repeatCount="indefinite" path="M 450,1016 L 450,1037"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.25;0.75;1" dur="1.5s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#7fe3b0"><animateMotion dur="1.5s" begin="0.4s" repeatCount="indefinite" path="M 450,1016 L 450,1037"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.25;0.75;1" dur="1.5s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 输出卡 -->
+  <rect x="250" y="1041" width="400" height="40" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+  <text x="278" y="1066" font-size="11" fill="#8b91b8">输出：</text>
+  <g font-size="13" font-weight="700" fill="#7fe3b0">
+    <text x="330" y="1066" opacity="0">一只猫<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" dur="4s" begin="0s" repeatCount="indefinite"/></text>
+    <text x="395" y="1066" opacity="0">正蹲在<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" dur="4s" begin="0.6s" repeatCount="indefinite"/></text>
+    <text x="460" y="1066" opacity="0">沙发上<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" dur="4s" begin="1.2s" repeatCount="indefinite"/></text>
+    <text x="525" y="1066" opacity="0">晒太阳<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.85;1" dur="4s" begin="1.8s" repeatCount="indefinite"/></text>
+  </g>
+
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>四步到底在干嘛（大白话版）</h2>
+    <ul>
+      <li><span class="o">① 切块</span>：大图切成 9 小块——一次只看一小块，看得清、算得动（实际如 14×14 像素/块，一张 224×224 的图 → 256 块）</li>
+      <li><span class="p">② ViT「读」每块</span>：这块是橙色的圆、那块是紫色的三角……每块被压缩成<strong>一串数字（向量）</strong>——这串数字就是这块内容的「特征代号」</li>
+      <li><span class="f">③ Projector 当换算器</span>：LLM 只认识<strong>词表里约定的数字</strong>（「圆」=[0.5, 0.1, …]），ViT 算出的是词表里没有的「野生数字」→ 直接喂等于乱码；Projector 把数字<strong>换算到对应词汇附近</strong>（贴着「圆」「橙」），LLM 一读就懂：右上有个橙色的圆</li>
+      <li><span class="g">④ 排队进 LLM</span>：9 个图片 token + 问题的文字 token 排成一排；LLM 眼里<strong>没有「图」和「字」的区别</strong>——都是数字，一起算关联，像接龙一样逐字蹦出答案</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>关键认知</h2>
+    <ul>
+      <li><strong>LLM 没有眼睛</strong>：看图和读文是一回事——都是处理一串数字（token）；区别只在「代号」的来路：文字的代号查词表就有，图片的代号要靠 ViT 从像素里算出来</li>
+      <li><span class="f">为什么非要 Projector</span>：LLM 词表里的每串数字都是预训练定死的，它只认这套；ViT 的数字是另一套体系。Projector 就是两套数字的<strong>「汇率」</strong>——用千万级「图片 ↔ 文字描述」对练出来，换算准了，LLM 才能把图片「听」成一段描述</li>
+      <li><span class="r">两个常见误会</span>：① 是<strong>「换算」不是「查字典」</strong>——图片块的向量有无穷多种、无典可查，是矩阵乘法直接<strong>算</strong>到「圆」「橙」附近；② 换算结果也<strong>不是词表里的某个词条</strong>，而是词向量空间里贴着「圆」「橙」的「新点」——LLM 靠空间位置读懂它；且它是<strong>视觉语义特征</strong>（不是像素 token，像素早已被 ViT 读成了语义）</li>
+      <li><span class="r">图片很费 token</span>：一张图动辄几百上千个视觉 token（如 LLaVA 每张 576 个）→ 多图、高清图明显更慢更贵</li>
+      <li><span class="o">细节会丢</span>：patch 切得越粗越省 token，但小字、小物体容易看不清 → 细粒度场景需要更高分辨率或动态切块（深入：<a class="inline" href="../../计算机视觉/OCR文字识别/OCR文字识别.html" style="color:#93b4f5;text-decoration:none">LLM 如何识别图片中的文字 →</a>）</li>
+      <li><span class="b">流程里为什么没有 OCR</span>：LLM 识图是<strong>端到端</strong>的——图里的文字和猫毛纹理一样，走同一套 patch → ViT → 训练流程被「看」懂，<strong>没有独立的文字识别模块</strong>；OCR 只出现在两处：① 专用识别系统（票据录入，上一代方案）② Agent 工具链（LLM 调 OCR 工具先提取文字，再读文本）</li>
+      <li><span class="p">训练分两阶段</span>：先冻结 LLM、用图文对数据练 Projector（对齐两个空间），再指令微调端到端练理解能力</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>代表方案对比</h2>
+    <table>
+      <tr><th>方案</th><th>视觉编码器</th><th>对齐方式</th><th>特点</th></tr>
+      <tr>
+        <td><strong>LLaVA</strong>（开源经典）</td>
+        <td>CLIP ViT</td>
+        <td>MLP Projector</td>
+        <td>结构就是上图，理解多模态原理的最佳样本</td>
+      </tr>
+      <tr>
+        <td>GPT-4o / Gemini</td>
+        <td>原生多模态</td>
+        <td>端到端联合训练</td>
+        <td>图、文、音频统一 token 化，出生就是多模态</td>
+      </tr>
+      <tr>
+        <td>Qwen-VL</td>
+        <td>ViT（高分辨率）</td>
+        <td>位置感知适配层</td>
+        <td>支持 grounding：能框出物体在图中的位置</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：LLM 识别图片 = <strong>切块（Patch）+ ViT 编码 + Projector 对齐</strong>，把图片翻译成几百个视觉 token，再和问题文本拼成同一序列喂进 LLM——对 LLM 而言，「看图」和「读文」没有任何区别，都是 token 序列。</div>
+
+  <p class="nav"><a href="../../架构/CAP理论/CAP理论.html">← CAP 理论</a><a href="../../计算机视觉/OCR文字识别/OCR文字识别.html">识别图片中的文字（OCR）→</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
