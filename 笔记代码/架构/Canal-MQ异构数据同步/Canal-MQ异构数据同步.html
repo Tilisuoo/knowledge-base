@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canal + MQ 异构数据同步 · 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-f { color: var(--pink); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .f { color: var(--pink); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Canal + MQ 异构数据同步</h1>
+    <p class="sub">
+      MySQL 改了价，ES 和 MongoDB 怎么跟着变？——
+      <span class="no-o">Canal 伪装从库白拿 binlog</span> → <span class="no-p">MQ 广播消息</span> →
+      <span class="no-f">下游各自订阅消费</span> → <span class="no-g">异构存储最终一致</span>，业务表全程零侵入。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1010" viewBox="0 0 900 1010" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="mm-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/></marker>
+    <marker id="mm-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/></marker>
+    <marker id="mm-arrF" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e06a9d"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1010" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">流水线：MySQL binlog → Canal → MQ → ES / MongoDB 各自更新</text>
+  <line x1="140" y1="34" x2="205" y2="34" stroke="#343b6e"/>
+  <line x1="695" y1="34" x2="760" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== ① 监听（橙）===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1"><tspan fill="#f6a04d" font-weight="700">Canal 监听</tspan><tspan fill="#8b91b8">：伪装成 MySQL 从库，实时白拿 binlog（增删改全收）</tspan></text>
+
+  <!-- 团队 A 边界 -->
+  <rect x="60" y="95" width="560" height="215" rx="12" fill="none" stroke="#343b6e" stroke-dasharray="4 4"/>
+  <text x="82" y="117" font-size="10" fill="#5d6390">团队 A · 商品主站</text>
+
+  <!-- MySQL -->
+  <rect x="80" y="125" width="230" height="150" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="195" y="149" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffc069">MySQL（关系库·源头）</text>
+  <text x="195" y="172" text-anchor="middle" font-size="9.5" fill="#c3c9e8">UPDATE product SET price=9.9</text>
+  <text x="195" y="189" text-anchor="middle" font-size="9.5" fill="#c3c9e8">WHERE id=1001（19.9 → 9.9）</text>
+  <rect x="100" y="203" width="190" height="52" rx="8" fill="#11163a" stroke="#343b6e"/>
+  <text x="120" y="223" font-size="9.5" fill="#8b91b8">binlog 流水账：</text>
+  <text x="120" y="242" font-size="9.5" fill="#c4aef5">id=1001 price 19.9→9.9</text>
+
+  <!-- MySQL → Canal 箭头 + 光点 -->
+  <path d="M 313,200 L 352,200" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <text x="332" y="190" text-anchor="middle" font-size="9" fill="#8b91b8">监听</text>
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M 313,200 L 350,200"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M 313,200 L 350,200"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- Canal -->
+  <rect x="355" y="125" width="240" height="150" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="475" y="151" text-anchor="middle" font-size="13" font-weight="700" fill="#ffc069">Canal</text>
+  <text x="475" y="173" text-anchor="middle" font-size="9.5" fill="#8b91b8">伪装成 MySQL 的 slave（从库）</text>
+  <text x="475" y="191" text-anchor="middle" font-size="9.5" fill="#8b91b8">向主库要 binlog → 解析成变更事件</text>
+  <text x="475" y="222" text-anchor="middle" font-size="10" fill="#c3c9e8">「我是从库，把 binlog 给我一份」</text>
+  <text x="475" y="247" text-anchor="middle" font-size="9" fill="#5d6390">业务表零侵入 · 零 SELECT 负载</text>
+
+  <!-- 澄清卡：Canal ≠ 轮询 -->
+  <rect x="640" y="95" width="210" height="215" rx="12" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="660" y="125" font-size="11.5" font-weight="700" fill="#ffc069">注意：Canal ≠ 定时轮询</text>
+  <text x="660" y="151" font-size="10" fill="#c3c9e8">不是 SELECT 定时扫表</text>
+  <text x="660" y="171" font-size="10" fill="#c3c9e8">而是白嫖「主从复制」机制：</text>
+  <text x="660" y="191" font-size="10" fill="#c3c9e8">binlog 一产生，主库主动推给它</text>
+  <text x="660" y="218" font-size="9.5" fill="#8b91b8">所以实时（秒级）、零侵入，</text>
+  <text x="660" y="236" font-size="9.5" fill="#8b91b8">增删改一条不漏</text>
+  <text x="660" y="262" font-size="9.5" fill="#8b91b8">（轮询抓不到已删除的行）</text>
+
+  <!-- ===== ② 投递 MQ（紫）===== -->
+  <circle cx="70" cy="346" r="11" fill="#a06ee1"/>
+  <text x="70" y="351" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="351" font-size="11.5" letter-spacing="1"><tspan fill="#c4aef5" font-weight="700">投递 MQ</tspan><tspan fill="#8b91b8">：变更解析成消息广播出去——谁关心谁订阅，Canal 不关心</tspan></text>
+
+  <path d="M 475,278 L 475,397" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <g>
+    <circle r="5" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.2s" begin="0.5s" repeatCount="indefinite" path="M 475,278 L 475,395"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2.2s" begin="0.5s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#c4aef5"><animateMotion dur="2.2s" begin="0.5s" repeatCount="indefinite" path="M 475,278 L 475,395"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2.2s" begin="0.5s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- MQ -->
+  <rect x="300" y="400" width="300" height="75" rx="12" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="450" y="432" text-anchor="middle" font-size="14" font-weight="700" fill="#c4aef5">MQ 消息队列（RocketMQ / Kafka）</text>
+  <text x="450" y="456" text-anchor="middle" font-size="9.5" fill="#8b91b8">公告栏：解耦多方订阅 · 削峰 · 下游挂了可重放</text>
+
+  <!-- 具象化卡：消息体 -->
+  <rect x="250" y="490" width="400" height="54" rx="10" fill="#11163a" stroke="#343b6e"/>
+  <text x="270" y="514" font-size="10.5" fill="#c4aef5">消息 = {"table":"product","type":"UPDATE","id":1001,"price":"19.9→9.9"}</text>
+  <text x="270" y="533" font-size="8.5" fill="#8b91b8">binlog 已被翻译成下游能直接消费的 JSON</text>
+
+  <!-- ===== ③ 订阅消费（粉）===== -->
+  <circle cx="70" cy="580" r="11" fill="#a06ee1"/>
+  <text x="70" y="585" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="585" font-size="11.5" letter-spacing="1"><tspan fill="#f2a9c4" font-weight="700">订阅消费</tspan><tspan fill="#8b91b8">：一份消息 N 个下游各取所需，互不知道对方存在</tspan></text>
+
+  <!-- 分叉箭头 + 光点 -->
+  <path d="M 400,478 C 340,525 255,555 246,632" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="5" fill="#e06a9d" opacity="0.3"><animateMotion dur="2s" begin="0.3s" repeatCount="indefinite" path="M 400,478 C 340,525 255,555 246,630"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#f2a9c4"><animateMotion dur="2s" begin="0.3s" repeatCount="indefinite" path="M 400,478 C 340,525 255,555 246,630"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.3s" repeatCount="indefinite"/></circle>
+  </g>
+  <path d="M 500,478 C 560,525 645,555 654,632" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="5" fill="#e06a9d" opacity="0.3"><animateMotion dur="2s" begin="0.7s" repeatCount="indefinite" path="M 500,478 C 560,525 645,555 654,630"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.7s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#f2a9c4"><animateMotion dur="2s" begin="0.7s" repeatCount="indefinite" path="M 500,478 C 560,525 645,555 654,630"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.7s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 团队 B -->
+  <rect x="70" y="600" width="350" height="200" rx="12" fill="none" stroke="#343b6e" stroke-dasharray="4 4"/>
+  <text x="92" y="622" font-size="10" fill="#5d6390">团队 B · 搜索服务（订阅 MQ）</text>
+  <rect x="100" y="635" width="290" height="140" rx="10" fill="#1a1f42" stroke="#e06a9d" stroke-opacity="0.5"/>
+  <text x="245" y="661" text-anchor="middle" font-size="12.5" font-weight="700" fill="#f2a9c4">ElasticSearch（全文检索）</text>
+  <text x="245" y="685" text-anchor="middle" font-size="9.5" fill="#8b91b8">更新索引：id=1001 → price 9.9</text>
+  <text x="245" y="709" text-anchor="middle" font-size="10" fill="#c3c9e8">用户搜「手机壳」→ 看到 ¥9.9 ✓</text>
+  <text x="245" y="739" text-anchor="middle" font-size="9" fill="#5d6390">只存检索字段（标题 / 价格 / 标签）</text>
+
+  <!-- 团队 C -->
+  <rect x="480" y="600" width="350" height="200" rx="12" fill="none" stroke="#343b6e" stroke-dasharray="4 4"/>
+  <text x="502" y="622" font-size="10" fill="#5d6390">团队 C · 详情服务（订阅 MQ）</text>
+  <rect x="510" y="635" width="290" height="140" rx="10" fill="#1a1f42" stroke="#e06a9d" stroke-opacity="0.5"/>
+  <text x="655" y="661" text-anchor="middle" font-size="12.5" font-weight="700" fill="#f2a9c4">MongoDB（文档库）</text>
+  <text x="655" y="685" text-anchor="middle" font-size="9.5" fill="#8b91b8">更新文档：{_id:1001, price:9.9}</text>
+  <text x="655" y="709" text-anchor="middle" font-size="10" fill="#c3c9e8">商品详情页 → 显示 ¥9.9 ✓</text>
+  <text x="655" y="739" text-anchor="middle" font-size="9" fill="#5d6390">存完整商品 JSON</text>
+
+  <!-- ===== ④ 最终一致（绿）===== -->
+  <circle cx="70" cy="836" r="11" fill="#a06ee1"/>
+  <text x="70" y="841" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+  <text x="90" y="841" font-size="11.5" letter-spacing="1"><tspan fill="#7fe3b0" font-weight="700">最终一致</tspan><tspan fill="#8b91b8">：同一份数据各存各的模型，秒级后大家都变成 9.9</tspan></text>
+
+  <g font-size="10.5">
+    <rect x="150" y="870" width="160" height="80" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+    <text x="230" y="899" text-anchor="middle" font-size="11" font-weight="700" fill="#7fe3b0">MySQL 源库</text>
+    <text x="230" y="921" text-anchor="middle" fill="#c3c9e8">price=9.9 ✓</text>
+    <text x="230" y="939" text-anchor="middle" font-size="8.5" fill="#5d6390">写完立即生效</text>
+
+    <rect x="370" y="870" width="160" height="80" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+    <text x="450" y="899" text-anchor="middle" font-size="11" font-weight="700" fill="#7fe3b0">ES 索引</text>
+    <text x="450" y="921" text-anchor="middle" fill="#c3c9e8">9.9 可搜到 ✓</text>
+    <text x="450" y="939" text-anchor="middle" font-size="8.5" fill="#5d6390">订阅更新·秒级延迟</text>
+
+    <rect x="590" y="870" width="160" height="80" rx="10" fill="#3ecf8e" fill-opacity="0.08" stroke="#3ecf8e" stroke-opacity="0.5"/>
+    <text x="670" y="899" text-anchor="middle" font-size="11" font-weight="700" fill="#7fe3b0">MongoDB 文档</text>
+    <text x="670" y="921" text-anchor="middle" fill="#c3c9e8">price:9.9 ✓</text>
+    <text x="670" y="939" text-anchor="middle" font-size="8.5" fill="#5d6390">订阅更新·秒级延迟</text>
+  </g>
+  <text x="341" y="921" text-anchor="middle" font-size="14" fill="#5d6390">≈</text>
+  <text x="561" y="921" text-anchor="middle" font-size="14" fill="#5d6390">≈</text>
+
+  <text x="450" y="985" text-anchor="middle" font-size="10.5" fill="#8b91b8">不保证「同一时刻」相等——保证「很快都会相等」；要强一致的读（如下单扣库存）走 MySQL 主库</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>大白话版（跟着一次改价走完全程）</h2>
+    <ul>
+      <li><span class="o">① Canal 监听</span>：MySQL 本来就会把 binlog（所有增删改的流水账）同步给从库——Canal <strong>假装自己是从库</strong>，主库就主动发它一份。例：运营把「iPhone 15 手机壳」从 19.9 改成 9.9，这条 UPDATE 立刻进 binlog，Canal 秒级拿到</li>
+      <li><span class="p">② 投递 MQ</span>：Canal 把 binlog 翻译成 JSON 消息丢进 MQ（公告栏）；它<strong>不关心谁来拿、有几个下游</strong>——发完就走</li>
+      <li><span class="f">③ 订阅消费</span>：团队B 的 ES 拿消息更新搜索索引（搜「手机壳」看到 9.9），团队C 的 MongoDB 更新详情文档（详情页显示 9.9）——<strong>同一条消息，各存各的模型</strong>，互不认识</li>
+      <li><span class="g">④ 最终一致</span>：全链路异步，有秒级延迟——不保证这一秒三边相等，保证<strong>很快都变成 9.9</strong></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>关键认知</h2>
+    <ul>
+      <li><strong>Canal 原理 = 白嫖主从复制</strong>：伪装 slave 向 master 发起 dump 协议，binlog 一产生就推过来——业务表零侵入、零 SELECT 负载、实时性高，且增删改一条不漏（轮询查不到「已删除」的行）</li>
+      <li><span class="p">为什么中间夹一层 MQ</span>：<strong>解耦</strong>（团队A 不认识 B/C，新增下游零改动）、<strong>削峰</strong>（大促改价洪峰排队慢慢消费）、<strong>可重放</strong>（下游宕机恢复后补消费）；Canal 也支持直发 ES/Kafka，但多方订阅场景 MQ 是标配</li>
+      <li><span class="r">常见误会①</span>：Canal ≠ 定时轮询查表（<code>SELECT ... WHERE update_time &gt; x</code>）——轮询延迟高（分钟级）、扫表有负载、抓不到物理删除的行</li>
+      <li><span class="r">常见误会②</span>：这是<strong>最终一致</strong>不是强一致——「下单扣库存」这种强一致读取必须走 MySQL 主库，别读 ES/MongoDB</li>
+      <li><span class="b">工程坑</span>：同一行的多次变更要<strong>按主键 hash 分区保序消费</strong>（不然 9.9 可能被旧的 19.9 覆盖）；消费端做<strong>幂等</strong>（消息可能重复投递）</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>方案对比</h2>
+    <table>
+      <tr><th>方案</th><th>实时性</th><th>侵入性</th><th>说明</th></tr>
+      <tr>
+        <td><strong>Canal + MQ</strong>（本方案）</td>
+        <td>秒级</td>
+        <td>零侵入</td>
+        <td>主流标配；链路长，要运维 Canal + MQ</td>
+      </tr>
+      <tr>
+        <td>定时轮询 update_time</td>
+        <td>分钟级</td>
+        <td>零侵入</td>
+        <td>实现最简单；扫表有负载、抓不到物理删除、要求表有 update_time 字段</td>
+      </tr>
+      <tr>
+        <td>业务代码双写</td>
+        <td>毫秒级</td>
+        <td>侵入代码</td>
+        <td>写 ES 失败即不一致，要本地消息表 / 事务补偿兜底</td>
+      </tr>
+      <tr>
+        <td>云服务 DTS / Debezium</td>
+        <td>秒级</td>
+        <td>零侵入</td>
+        <td>同款 binlog 原理，开箱即用 / 生态成熟；厂商绑定或自建运维成本</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：Canal 伪装成 MySQL 从库订阅 binlog，把增删改解析成消息投进 MQ，ES、MongoDB 等下游各自订阅消费——<strong>业务表零侵入</strong>，换来异构存储的<strong>最终一致</strong>（秒级延迟）。</div>
+
+  <p class="nav"><a href="../CAP理论/CAP理论.html">← CAP 理论</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
