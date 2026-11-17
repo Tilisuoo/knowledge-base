@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>分布式事务 Seata 流程 · 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-f { color: var(--pink); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .f { color: var(--pink); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>分布式事务 Seata 流程（AT 模式）</h1>
+    <p class="sub">
+      一次下单要动三个库，中间失败了怎么全部还原？——
+      <span class="no-o">TM 向 TC 领全局事务 XID</span> → <span class="no-p">一阶段：各分支直接提交 + 留 undo_log</span> →
+      <span class="no-f">有失败则 TC 发全局回滚</span> → <span class="no-g">照 undo_log 反向补偿，数据原样恢复</span>。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1100" viewBox="0 0 900 1100" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="mm-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/></marker>
+    <marker id="mm-arrB" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#5b8def"/></marker>
+    <marker id="mm-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/></marker>
+    <marker id="mm-arrF" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e06a9d"/></marker>
+    <marker id="mm-arrG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#3ecf8e"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1100" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">流水线：领 XID → 分支直接提交 + undo_log → 判定 → 提交删日志 / 回滚反补偿</text>
+  <line x1="160" y1="34" x2="225" y2="34" stroke="#343b6e"/>
+  <line x1="675" y1="34" x2="740" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== ① 开启全局事务（橙）===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1"><tspan fill="#f6a04d" font-weight="700">开启全局事务</tspan><tspan fill="#8b91b8">：TM 向 TC 领一个 XID，随调用链传给每个参与服务</tspan></text>
+
+  <!-- TM -->
+  <rect x="90" y="100" width="240" height="110" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="210" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#ffc069">订单服务（TM 发起方）</text>
+  <text x="210" y="148" text-anchor="middle" font-size="9.5" fill="#c3c9e8">用户买 1 个手机壳 ¥9.9</text>
+  <text x="210" y="168" text-anchor="middle" font-size="9" fill="#8b91b8">要调：订单 + 库存 + 账户</text>
+  <text x="210" y="190" text-anchor="middle" font-size="9" fill="#5d6390">TM＝事务管理器，管全局开/关</text>
+
+  <!-- TM ⇄ TC 双向箭头 -->
+  <path d="M 332,142 L 417,142" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <text x="375" y="133" text-anchor="middle" font-size="8.5" fill="#8b91b8">① 申请</text>
+  <path d="M 417,172 L 332,172" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <text x="375" y="164" text-anchor="middle" font-size="8.5" fill="#8b91b8">② XID=tx1001</text>
+  <g>
+    <circle r="4" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 334,142 L 415,142"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#ffc069"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 334,142 L 415,142"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- TC -->
+  <rect x="420" y="100" width="240" height="110" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="540" y="126" text-anchor="middle" font-size="12" font-weight="700" fill="#8fb3f7">TC 事务协调者</text>
+  <text x="540" y="148" text-anchor="middle" font-size="9.5" fill="#c3c9e8">全局大脑：记录各分支状态</text>
+  <text x="540" y="168" text-anchor="middle" font-size="10" fill="#c4aef5">发 XID = tx1001</text>
+  <text x="540" y="190" text-anchor="middle" font-size="9" fill="#5d6390">独立部署的 Seata Server</text>
+
+  <!-- 三角色词典卡 -->
+  <rect x="690" y="100" width="160" height="110" rx="10" fill="#11163a" stroke="#343b6e"/>
+  <text x="708" y="124" font-size="10" font-weight="700" fill="#c3c9e8">三个角色</text>
+  <text x="708" y="146" font-size="8.5" fill="#8b91b8">TC：全局大脑（独立部署）</text>
+  <text x="708" y="164" font-size="8.5" fill="#8b91b8">TM：发起方，管开/关</text>
+  <text x="708" y="182" font-size="8.5" fill="#8b91b8">RM：各服务，管分支</text>
+  <text x="708" y="200" font-size="8.5" fill="#5d6390">（同一进程可身兼多职）</text>
+
+  <!-- ===== ② 一阶段（紫）===== -->
+  <circle cx="70" cy="246" r="11" fill="#a06ee1"/>
+  <text x="70" y="251" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="251" font-size="11.5" letter-spacing="1"><tspan fill="#c4aef5" font-weight="700">一阶段</tspan><tspan fill="#8b91b8">：各分支业务 SQL 直接提交，只留一份 undo_log（回滚说明书）</tspan></text>
+
+  <!-- XID 传递三分叉 -->
+  <path d="M 210,213 C 200,290 190,330 186,377" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <path d="M 210,213 C 300,290 420,330 449,377" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <path d="M 210,213 C 400,290 680,330 714,377" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <text x="330" y="300" text-anchor="middle" font-size="8.5" fill="#5d6390">XID 随调用链透传（Dubbo / Feign 自动带）</text>
+  <g>
+    <circle r="4" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.2s" begin="0.2s" repeatCount="indefinite" path="M 210,213 C 300,290 420,330 449,375"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2.2s" begin="0.2s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#c4aef5"><animateMotion dur="2.2s" begin="0.2s" repeatCount="indefinite" path="M 210,213 C 300,290 420,330 449,375"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2.2s" begin="0.2s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 分支1：订单 -->
+  <rect x="60" y="380" width="250" height="180" rx="10" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="185" y="404" text-anchor="middle" font-size="11.5" font-weight="700" fill="#c4aef5">分支1 · 订单服务（RM）</text>
+  <text x="185" y="428" text-anchor="middle" font-size="9" fill="#c3c9e8">INSERT 订单 #1001（手机壳 ×1）</text>
+  <text x="185" y="448" text-anchor="middle" font-size="9" fill="#8b91b8">向 TC 注册分支 ✓ 申请全局锁 ✓</text>
+  <rect x="75" y="460" width="220" height="52" rx="8" fill="#11163a" stroke="#343b6e"/>
+  <text x="90" y="480" font-size="8.5" fill="#8b91b8">undo_log：</text>
+  <text x="90" y="498" font-size="8.5" fill="#c4aef5">before=无 → after=订单行</text>
+  <text x="185" y="542" text-anchor="middle" font-size="9.5" fill="#7fe3b0">本地事务直接提交 ✓</text>
+
+  <!-- 分支2：库存 -->
+  <rect x="325" y="380" width="250" height="180" rx="10" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="450" y="404" text-anchor="middle" font-size="11.5" font-weight="700" fill="#c4aef5">分支2 · 库存服务（RM）</text>
+  <text x="450" y="428" text-anchor="middle" font-size="9" fill="#c3c9e8">UPDATE stock：100 → 99</text>
+  <text x="450" y="448" text-anchor="middle" font-size="9" fill="#8b91b8">向 TC 注册分支 ✓ 申请全局锁 ✓</text>
+  <rect x="340" y="460" width="220" height="52" rx="8" fill="#11163a" stroke="#343b6e"/>
+  <text x="355" y="480" font-size="8.5" fill="#8b91b8">undo_log：</text>
+  <text x="355" y="498" font-size="8.5" fill="#c4aef5">before=100 → after=99</text>
+  <text x="450" y="542" text-anchor="middle" font-size="9.5" fill="#7fe3b0">本地事务直接提交 ✓</text>
+
+  <!-- 分支3：账户（失败） -->
+  <rect x="590" y="380" width="250" height="180" rx="10" fill="#1a1f42" stroke="#e06a6a" stroke-opacity="0.55"/>
+  <text x="715" y="404" text-anchor="middle" font-size="11.5" font-weight="700" fill="#c4aef5">分支3 · 账户服务（RM）</text>
+  <text x="715" y="428" text-anchor="middle" font-size="9" fill="#c3c9e8">UPDATE 余额：100 → 90.1</text>
+  <text x="715" y="448" text-anchor="middle" font-size="9" fill="#8b91b8">向 TC 注册分支 ✓</text>
+  <text x="715" y="482" text-anchor="middle" font-size="10.5" font-weight="700" fill="#f09090">余额不足 ✗ 扣款失败！</text>
+  <text x="715" y="506" text-anchor="middle" font-size="9" fill="#8b91b8">本地事务回滚（压根没提交）</text>
+  <text x="715" y="532" text-anchor="middle" font-size="9" fill="#f09090">向 TC 汇报：分支3 失败</text>
+
+  <!-- 澄清卡：一阶段 ≠ 2PC 干等 -->
+  <rect x="150" y="590" width="600" height="70" rx="12" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="170" y="614" font-size="10.5" font-weight="700" fill="#ffc069">注意：一阶段就「直接提交」了——不是 2PC 的干等！</text>
+  <text x="170" y="636" font-size="9.5" fill="#c3c9e8">传统 2PC：一阶段不提交、资源全锁住干等；Seata AT 只留 undo_log 就放行 → 快</text>
+  <text x="170" y="655" font-size="8.5" fill="#8b91b8">代价：中间状态别人读得到（最终一致）；回滚靠 undo_log 反向补偿</text>
+
+  <!-- ===== ③ 判定（粉）===== -->
+  <circle cx="70" cy="696" r="11" fill="#a06ee1"/>
+  <text x="70" y="701" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="701" font-size="11.5" letter-spacing="1"><tspan fill="#f2a9c4" font-weight="700">判定</tspan><tspan fill="#8b91b8">：全成功 → 删日志收工；有失败 → 全局回滚（本例走回滚）</tspan></text>
+
+  <!-- 失败上报 -->
+  <path d="M 715,563 C 715,650 560,700 458,727" fill="none" stroke="#e06a6a" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#mm-arrF)" opacity="0.8"/>
+  <text x="680" y="640" font-size="8.5" fill="#f09090">分支3 上报失败，</text>
+  <text x="680" y="654" font-size="8.5" fill="#f09090">异常抛回 TM</text>
+
+  <!-- 另一路：全成功（弱化） -->
+  <g opacity="0.55">
+    <rect x="60" y="725" width="230" height="74" rx="10" fill="#11163a" stroke="#3ecf8e" stroke-opacity="0.3"/>
+    <text x="175" y="749" text-anchor="middle" font-size="10" font-weight="700" fill="#7fe3b0">另一条路：全成功</text>
+    <text x="175" y="769" text-anchor="middle" font-size="8.5" fill="#8b91b8">TM 发提交 → TC 通知 RM 删日志</text>
+    <text x="175" y="786" text-anchor="middle" font-size="8.5" fill="#5d6390">（毫秒级，因为早提交了）</text>
+  </g>
+  <path d="M 330,752 L 293,755" fill="none" stroke="#3ecf8e" stroke-width="1.2" marker-end="url(#mm-arrG)" opacity="0.5"/>
+
+  <!-- TC 判定 -->
+  <rect x="330" y="730" width="240" height="64" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="450" y="752" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8fb3f7">TM → TC：全局回滚！</text>
+  <text x="450" y="774" text-anchor="middle" font-size="9.5" fill="#c3c9e8">TC 收到决议 → 逐个通知各 RM 执行</text>
+
+  <!-- 本例：全局回滚 -->
+  <rect x="610" y="725" width="230" height="74" rx="10" fill="#11163a" stroke="#e06a6a" stroke-opacity="0.5"/>
+  <text x="725" y="749" text-anchor="middle" font-size="10" font-weight="700" fill="#f09090">本例：TC 通知各 RM 回滚</text>
+  <text x="725" y="769" text-anchor="middle" font-size="8.5" fill="#c3c9e8">通知分支1、2 按 undo_log</text>
+  <text x="725" y="786" text-anchor="middle" font-size="8.5" fill="#c3c9e8">反向补偿</text>
+  <path d="M 570,752 L 607,755" fill="none" stroke="#e06a6a" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="4" fill="#e06a6a" opacity="0.3"><animateMotion dur="1.4s" begin="0.4s" repeatCount="indefinite" path="M 572,752 L 605,755"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#f09090"><animateMotion dur="1.4s" begin="0.4s" repeatCount="indefinite" path="M 572,752 L 605,755"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- ===== ④ 二阶段回滚（粉→绿）===== -->
+  <circle cx="70" cy="836" r="11" fill="#a06ee1"/>
+  <text x="70" y="841" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+  <text x="90" y="841" font-size="11.5" letter-spacing="1"><tspan fill="#7fe3b0" font-weight="700">二阶段回滚</tspan><tspan fill="#8b91b8">：照 undo_log 的 before image 反向补偿，数据原样恢复</tspan></text>
+
+  <!-- 回滚指令分叉 -->
+  <path d="M 420,796 C 350,850 230,880 215,922" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="4" fill="#e06a9d" opacity="0.3"><animateMotion dur="2s" begin="0.3s" repeatCount="indefinite" path="M 420,796 C 350,850 230,880 215,920"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#f2a9c4"><animateMotion dur="2s" begin="0.3s" repeatCount="indefinite" path="M 420,796 C 350,850 230,880 215,920"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.3s" repeatCount="indefinite"/></circle>
+  </g>
+  <path d="M 480,796 C 550,850 620,880 633,922" fill="none" stroke="#e06a9d" stroke-width="1.8" marker-end="url(#mm-arrF)"/>
+  <g>
+    <circle r="4" fill="#e06a9d" opacity="0.3"><animateMotion dur="2s" begin="0.7s" repeatCount="indefinite" path="M 480,796 C 550,850 620,880 633,920"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.7s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#f2a9c4"><animateMotion dur="2s" begin="0.7s" repeatCount="indefinite" path="M 480,796 C 550,850 620,880 633,920"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.7s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 分支1 回滚 -->
+  <rect x="90" y="925" width="250" height="110" rx="10" fill="#1a1f42" stroke="#e06a9d" stroke-opacity="0.5"/>
+  <text x="215" y="951" text-anchor="middle" font-size="11.5" font-weight="700" fill="#f2a9c4">分支1 · 订单服务</text>
+  <text x="215" y="975" text-anchor="middle" font-size="9.5" fill="#c3c9e8">照 undo_log：before=无</text>
+  <text x="215" y="996" text-anchor="middle" font-size="9.5" fill="#c3c9e8">→ DELETE 订单 #1001</text>
+  <text x="215" y="1018" text-anchor="middle" font-size="9.5" fill="#7fe3b0">订单消失 ✓ 恢复原样</text>
+
+  <!-- 分支2 回滚 -->
+  <rect x="510" y="925" width="250" height="110" rx="10" fill="#1a1f42" stroke="#e06a9d" stroke-opacity="0.5"/>
+  <text x="635" y="951" text-anchor="middle" font-size="11.5" font-weight="700" fill="#f2a9c4">分支2 · 库存服务</text>
+  <text x="635" y="975" text-anchor="middle" font-size="9.5" fill="#c3c9e8">照 undo_log：before=100</text>
+  <text x="635" y="996" text-anchor="middle" font-size="9.5" fill="#c3c9e8">→ UPDATE stock 99 改回 100</text>
+  <text x="635" y="1018" text-anchor="middle" font-size="9.5" fill="#7fe3b0">库存恢复 ✓ 手机壳没丢</text>
+
+  <!-- 结果行 -->
+  <text x="450" y="1072" text-anchor="middle" font-size="10.5" fill="#8b91b8">回滚前还会用 after image 校验：当前值 ≠ after？说明被别人动过（脏写）→ 告警人工处理</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>大白话版（买个手机壳，扣款失败了）</h2>
+    <ul>
+      <li><span class="o">① 开启</span>：订单服务（TM）向 TC 领全局事务 XID=tx1001；XID 随调用链传给库存、账户服务</li>
+      <li><span class="p">② 一阶段</span>：订单插单、库存 100→99 <strong>本地直接提交</strong>（各留一份 undo_log 回滚说明书）；账户扣款 100→90.1 失败：余额不足，本地回滚</li>
+      <li><span class="f">③ 判定</span>：分支3 失败、异常抛回 TM → <strong>TM 拍板</strong>「全局回滚」发给 TC → <strong>TC 逐个通知各 RM 执行</strong>（全成功则 TM 发提交，TC 通知删 undo_log 收工，毫秒级）</li>
+      <li><span class="g">④ 回滚</span>：分支1 照 undo_log 删掉订单 #1001、分支2 把库存 99 改回 100——数据原样恢复 ✓</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>关键认知</h2>
+    <ul>
+      <li><strong>AT 的灵魂：一阶段直接提交 + undo_log</strong>——对比传统 2PC「一阶段不提交、资源全锁干等」，Seata 用一份回滚日志换来高性能：二阶段提交＝删日志（快），回滚＝照 before image 反向补偿</li>
+      <li><span class="p">before / after image 分工</span>：回滚用 <strong>before</strong> 还原；<strong>after</strong> 用于回滚前校验——当前值 ≠ after 说明数据被别人动过（脏写），告警转人工处理，不能直接覆盖</li>
+      <li><span class="b">全局锁</span>：一阶段本地提交前向 TC 申请（行级）——防止两个全局事务并发改同一行，把对方的 undo_log 写乱</li>
+      <li><span class="r">常见误会①</span>：Seata AT <strong>不是强一致</strong>——一阶段已提交，中间状态别人读得到（相当于读未提交）；要读已提交得 <code>SELECT FOR UPDATE</code> 走全局锁代理</li>
+      <li><span class="r">常见误会②</span>：不是所有场景都能 AT——要求<strong>关系库 + undo_log 表 + 本地事务</strong>；调用外部接口等不支持的场景，用 TCC 模式手写三个方法</li>
+      <li><span class="o">XID 怎么传</span>：ThreadLocal 存放 + RPC 自动透传（Dubbo / Feign / MQ 均支持），业务代码零感知</li>
+      <li><span class="b">谁通知谁（指令链）</span>：一阶段 <strong>RM → TC</strong>（注册分支 + 上报状态）；决议 <strong>TM → TC</strong>（发起全局提交/回滚）；二阶段 <strong>TC → RM</strong>（通知分支执行）。TM 是「拍板的」（业务 Owner），TC 是「传话 + 协调的」（登记所有分支），RM 是「干活的」</li>
+      <li><span class="p">undo_log 存在哪</span>：<strong>各业务库</strong>里（每个库建一张 <code>undo_log</code> 表），和业务 SQL 在<strong>同一个本地事务</strong>提交——「业务改了，回滚日志一定在」；TC 上只存<strong>事务状态 + 分支清单 + 全局锁</strong>，不扛数据快照。回滚时 TC 只带 XID + branch_id 通知，RM 自己去本地查 before image 生成反向 SQL</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>Seata 四种模式对比</h2>
+    <table>
+      <tr><th>模式</th><th>侵入性</th><th>一致性</th><th>性能</th><th>适用场景</th></tr>
+      <tr>
+        <td><strong>AT</strong>（本图）</td>
+        <td>无侵入</td>
+        <td>最终一致</td>
+        <td>高（一阶段即提交）</td>
+        <td>关系库常规业务，90% 场景首选</td>
+      </tr>
+      <tr>
+        <td>TCC</td>
+        <td>高（手写 Try / Confirm / Cancel）</td>
+        <td>最终一致</td>
+        <td>高（不锁资源）</td>
+        <td>资金、积分等核心场景，或调外部接口</td>
+      </tr>
+      <tr>
+        <td>Saga</td>
+        <td>中（状态机编排）</td>
+        <td>最终一致</td>
+        <td>高</td>
+        <td>长流程：跨公司、老系统、数天跨度</td>
+      </tr>
+      <tr>
+        <td>XA</td>
+        <td>无侵入（依赖 DB 支持）</td>
+        <td><strong>强一致</strong></td>
+        <td>低（资源全程锁定）</td>
+        <td>强一致刚需（银行核心账务）</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：Seata AT = TC 协调 + TM 发起 + RM 管分支——一阶段业务 SQL <strong>直接提交</strong>、只留 undo_log（before / after image），全成功则二阶段删日志收工，有失败则照 before image 反向补偿；用「一阶段早提交」换高性能，代价是<strong>最终一致</strong>。</div>
+
+  <p class="nav"><a href="../MHA架构实现Mysql高可用/MHA架构实现Mysql高可用.html">← MHA 架构实现 MySQL 高可用</a><a href="../../架构/Canal-MQ异构数据同步/Canal-MQ异构数据同步.html">Canal + MQ 异构数据同步 →</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
