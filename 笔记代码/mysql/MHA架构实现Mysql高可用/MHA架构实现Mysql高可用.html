@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MHA 架构实现 MySQL 高可用 · 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-r { color: var(--red); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .f { color: var(--pink); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MHA 架构实现 MySQL 高可用</h1>
+    <p class="sub">
+      主库半夜挂了，谁来顶？MHA = <span class="no-o">一主两从 + Manager 哨兵</span>：
+      <span class="no-r">主挂自动判定</span> → <span class="no-p">选最新从库 + 补齐差异 binlog</span> →
+      <span class="no-g">新主接管、从库改指向</span>，全程 &lt;30 秒、几乎不丢数据。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1080" viewBox="0 0 900 1080" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="mm-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/></marker>
+    <marker id="mm-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/></marker>
+    <marker id="mm-arrG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#3ecf8e"/></marker>
+    <marker id="mm-arrB" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#5b8def"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1080" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">流水线：一主两从 → 主挂 → 选最新从库 + 补数据 → 新主接管</text>
+  <line x1="185" y1="34" x2="245" y2="34" stroke="#343b6e"/>
+  <line x1="655" y1="34" x2="715" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== ① 平时（橙）===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1"><tspan fill="#f6a04d" font-weight="700">平时：一主两从</tspan><tspan fill="#8b91b8">：master 写、slave 实时同步 binlog，Manager 每 3 秒 ping 主库</tspan></text>
+
+  <!-- master -->
+  <rect x="350" y="100" width="200" height="84" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="450" y="126" text-anchor="middle" font-size="12.5" font-weight="700" fill="#ffc069">MySQL master</text>
+  <text x="450" y="147" text-anchor="middle" font-size="9.5" fill="#8b91b8">10.0.0.1 · 可读写</text>
+  <text x="450" y="168" text-anchor="middle" font-size="10" fill="#c4aef5">binlog pos = 5000</text>
+
+  <!-- Manager -->
+  <rect x="640" y="100" width="210" height="84" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.5"/>
+  <text x="745" y="124" text-anchor="middle" font-size="12" font-weight="700" fill="#8fb3f7">MHA Manager（哨兵）</text>
+  <text x="745" y="145" text-anchor="middle" font-size="9" fill="#8b91b8">每 3 秒 ping 一次 master</text>
+  <text x="745" y="166" text-anchor="middle" font-size="9" fill="#8b91b8">连试 3 次不通 → 判定死亡</text>
+
+  <!-- Binlog Server（可选） -->
+  <rect x="90" y="100" width="220" height="84" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.4"/>
+  <text x="200" y="124" text-anchor="middle" font-size="11" font-weight="700" fill="#8fb3f7">Binlog Server（可选）</text>
+  <text x="200" y="145" text-anchor="middle" font-size="9" fill="#8b91b8">伪装成 slave 实时拉 binlog</text>
+  <text x="200" y="166" text-anchor="middle" font-size="9" fill="#8b91b8">只存不应用 → binlog 仓库</text>
+  <text x="200" y="198" text-anchor="middle" font-size="8.5" fill="#5d6390">旧主报废时，从它这里补 binlog</text>
+
+  <!-- master → Binlog Server（流式拉 binlog） -->
+  <path d="M 350,142 L 313,142" fill="none" stroke="#f6a04d" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="4" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.6s" begin="0.9s" repeatCount="indefinite" path="M 348,142 L 315,142"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.9s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#ffc069"><animateMotion dur="1.6s" begin="0.9s" repeatCount="indefinite" path="M 348,142 L 315,142"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.9s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 心跳虚线 + 光点 -->
+  <line x1="552" y1="142" x2="638" y2="142" stroke="#5b8def" stroke-width="1.2" stroke-dasharray="2 3" opacity="0.6"/>
+  <text x="595" y="132" text-anchor="middle" font-size="8.5" fill="#5d6390">ping</text>
+  <g>
+    <circle r="4" fill="#5b8def" opacity="0.3"><animateMotion dur="1.2s" begin="0s" repeatCount="indefinite" path="M 638,142 L 554,142"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#8fb3f7"><animateMotion dur="1.2s" begin="0s" repeatCount="indefinite" path="M 638,142 L 554,142"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 复制分叉 master→slave1/slave2 -->
+  <path d="M 420,186 C 350,205 230,212 205,232" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 420,186 C 350,205 230,212 205,230"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" path="M 420,186 C 350,205 230,212 205,230"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <path d="M 480,186 C 550,205 670,212 695,232" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="5" fill="#f6a04d" opacity="0.3"><animateMotion dur="2s" begin="0.6s" repeatCount="indefinite" path="M 480,186 C 550,205 670,212 695,230"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.6s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#ffc069"><animateMotion dur="2s" begin="0.6s" repeatCount="indefinite" path="M 480,186 C 550,205 670,212 695,230"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.6s" repeatCount="indefinite"/></circle>
+  </g>
+  <text x="300" y="222" text-anchor="middle" font-size="9" fill="#8b91b8">binlog 复制</text>
+  <text x="600" y="222" text-anchor="middle" font-size="9" fill="#8b91b8">binlog 复制</text>
+
+  <!-- slave1 / slave2 -->
+  <rect x="90" y="235" width="220" height="90" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="200" y="261" text-anchor="middle" font-size="12" font-weight="700" fill="#c3c9e8">slave1（10.0.0.2）</text>
+  <text x="200" y="282" text-anchor="middle" font-size="9.5" fill="#8b91b8">只读 · 实时复制 binlog</text>
+  <text x="200" y="305" text-anchor="middle" font-size="10" fill="#c4aef5">pos = 4800（落后 200）</text>
+
+  <rect x="590" y="235" width="220" height="90" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="700" y="261" text-anchor="middle" font-size="12" font-weight="700" fill="#c3c9e8">slave2（10.0.0.3）</text>
+  <text x="700" y="282" text-anchor="middle" font-size="9.5" fill="#8b91b8">只读 · 实时复制 binlog</text>
+  <text x="700" y="305" text-anchor="middle" font-size="10" fill="#c4aef5">pos = 4500（落后 500）</text>
+
+  <!-- ===== ② 主库挂了（红）===== -->
+  <circle cx="70" cy="361" r="11" fill="#a06ee1"/>
+  <text x="70" y="366" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="366" font-size="11.5" letter-spacing="1"><tspan fill="#f09090" font-weight="700">主库挂了</tspan><tspan fill="#8b91b8">：连试 3 次 ping 不通 → 判定死亡，自动开始 failover（约 10 秒）</tspan></text>
+
+  <!-- 判定时间线卡 -->
+  <rect x="90" y="390" width="230" height="110" rx="10" fill="#11163a" stroke="#343b6e"/>
+  <text x="108" y="414" font-size="10.5" font-weight="700" fill="#c3c9e8">判定时间线（默认配置）</text>
+  <text x="108" y="438" font-size="9.5" fill="#8b91b8">00:00:03  第 1 次 ping 失败</text>
+  <text x="108" y="458" font-size="9.5" fill="#8b91b8">00:00:06  第 2 次 ping 失败</text>
+  <text x="108" y="478" font-size="9.5" fill="#f09090">00:00:09  第 3 次 → 判定死亡</text>
+
+  <!-- 死掉的 master -->
+  <rect x="350" y="396" width="200" height="84" rx="10" fill="#1a1f42" stroke="#e06a6a" stroke-opacity="0.6"/>
+  <line x1="368" y1="412" x2="532" y2="466" stroke="#e06a6a" stroke-width="2.5" opacity="0.75"/>
+  <line x1="532" y1="412" x2="368" y2="466" stroke="#e06a6a" stroke-width="2.5" opacity="0.75"/>
+  <text x="450" y="434" text-anchor="middle" font-size="12" font-weight="700" fill="#f09090">master 断电宕机 ✗</text>
+  <text x="450" y="457" text-anchor="middle" font-size="9.5" fill="#8b91b8">10.0.0.1 无响应</text>
+
+  <!-- Manager 判定 -->
+  <rect x="640" y="396" width="210" height="84" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.5"/>
+  <text x="745" y="420" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8fb3f7">MHA Manager</text>
+  <text x="745" y="442" text-anchor="middle" font-size="9.5" fill="#f09090">ping ×3 全失败 → 判死亡</text>
+  <text x="745" y="463" text-anchor="middle" font-size="9.5" fill="#8b91b8">启动 failover（故障切换）！</text>
+
+  <!-- 断掉的心跳 -->
+  <line x1="552" y1="438" x2="638" y2="438" stroke="#e06a6a" stroke-width="1.2" stroke-dasharray="2 3" opacity="0.6"/>
+  <text x="595" y="428" text-anchor="middle" font-size="9" fill="#f09090">ping ✗</text>
+
+  <!-- ===== ③ 选主 + 补数据（紫）===== -->
+  <circle cx="70" cy="536" r="11" fill="#a06ee1"/>
+  <text x="70" y="541" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="541" font-size="11.5" letter-spacing="1"><tspan fill="#c4aef5" font-weight="700">选主 + 补数据</tspan><tspan fill="#8b91b8">：谁的数据最新谁上位，落后的向先进的对齐（MHA 灵魂）</tspan></text>
+
+  <!-- slave1 候选人 -->
+  <rect x="90" y="566" width="250" height="110" rx="10" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.6"/>
+  <text x="215" y="592" text-anchor="middle" font-size="12" font-weight="700" fill="#c4aef5">slave1（10.0.0.2）</text>
+  <text x="215" y="613" text-anchor="middle" font-size="10" fill="#c4aef5">pos=4800 → 数据最新 ✓</text>
+  <text x="215" y="636" text-anchor="middle" font-size="9.5" fill="#7fe3b0">→ 当选新主候选人</text>
+  <text x="215" y="658" text-anchor="middle" font-size="8.5" fill="#5d6390">（也可配 candidate_master 指定优先）</text>
+
+  <!-- slave2 落后 -->
+  <rect x="560" y="566" width="250" height="110" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="685" y="592" text-anchor="middle" font-size="12" font-weight="700" fill="#c3c9e8">slave2（10.0.0.3）</text>
+  <text x="685" y="613" text-anchor="middle" font-size="10" fill="#c4aef5">pos=4500 → 落后 500</text>
+  <text x="685" y="636" text-anchor="middle" font-size="9.5" fill="#8b91b8">先补齐差异，再当新主的从库</text>
+
+  <!-- 补齐箭头 slave1 → slave2 -->
+  <path d="M 340,621 L 557,621" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <text x="450" y="611" text-anchor="middle" font-size="9.5" fill="#8b91b8">「把 4500→4800 的 relay log 发我」</text>
+  <g>
+    <circle r="5" fill="#a06ee1" opacity="0.3"><animateMotion dur="2s" begin="0.4s" repeatCount="indefinite" path="M 342,621 L 555,621"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#c4aef5"><animateMotion dur="2s" begin="0.4s" repeatCount="indefinite" path="M 342,621 L 555,621"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 抢救卡：SSH 救 binlog -->
+  <rect x="250" y="700" width="400" height="70" rx="10" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="270" y="724" font-size="10.5" font-weight="700" fill="#ffc069">关键一招：旧主还能 SSH，就抢救 binlog</text>
+  <text x="270" y="745" font-size="9.5" fill="#c3c9e8">把旧主没传走的 4800→5000 也发给新主 → 数据零丢失</text>
+  <text x="270" y="763" font-size="8.5" fill="#8b91b8">（配了 Binlog Server，旧主彻底报废也能从它那里补回来）</text>
+
+  <!-- ===== ④ 新主接管（绿）===== -->
+  <circle cx="70" cy="806" r="11" fill="#a06ee1"/>
+  <text x="70" y="811" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+  <text x="90" y="811" font-size="11.5" letter-spacing="1"><tspan fill="#7fe3b0" font-weight="700">新主接管</tspan><tspan fill="#8b91b8">：提升新主 + 从库改指向 + VIP 漂移，全程 &lt;30 秒</tspan></text>
+
+  <!-- VIP 漂移卡 -->
+  <rect x="60" y="836" width="220" height="96" rx="10" fill="#11163a" stroke="#3ecf8e" stroke-opacity="0.4"/>
+  <text x="80" y="860" font-size="10.5" font-weight="700" fill="#7fe3b0">VIP 漂移</text>
+  <text x="80" y="882" font-size="9.5" fill="#c3c9e8">VIP 10.0.0.100 → 绑到新主</text>
+  <text x="80" y="902" font-size="9" fill="#8b91b8">应用不用改配置，无感切换</text>
+  <text x="80" y="920" font-size="8.5" fill="#5d6390">（由 failover 切换脚本完成）</text>
+
+  <!-- 新 master -->
+  <rect x="330" y="836" width="240" height="96" rx="10" fill="#1a1f42" stroke="#3ecf8e" stroke-opacity="0.65" stroke-width="1.5"/>
+  <text x="450" y="863" text-anchor="middle" font-size="12.5" font-weight="700" fill="#7fe3b0">新 master（10.0.0.2）✓</text>
+  <text x="450" y="886" text-anchor="middle" font-size="9.5" fill="#c3c9e8">打开可写 · 应用写入恢复</text>
+  <text x="450" y="907" text-anchor="middle" font-size="9" fill="#5d6390">原 slave1 升职</text>
+
+  <!-- slave2 改指向 -->
+  <rect x="640" y="846" width="210" height="86" rx="10" fill="#1a1f42" stroke="#343b6e"/>
+  <text x="745" y="871" text-anchor="middle" font-size="11.5" font-weight="700" fill="#c3c9e8">slave2（10.0.0.3）</text>
+  <text x="745" y="892" text-anchor="middle" font-size="9" fill="#8b91b8">change master to 10.0.0.2</text>
+  <text x="745" y="912" text-anchor="middle" font-size="9" fill="#8b91b8">改指新主，复制恢复 ✓</text>
+
+  <!-- 新主 → slave2 复制箭头 -->
+  <path d="M 570,884 L 637,884" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#mm-arrG)"/>
+  <g>
+    <circle r="5" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 572,884 L 635,884"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+    <circle r="2.2" fill="#7fe3b0"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite" path="M 572,884 L 635,884"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.8s" begin="0.2s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 旧主善后 -->
+  <rect x="60" y="952" width="220" height="70" rx="10" fill="#11163a" stroke="#343b6e"/>
+  <text x="80" y="976" font-size="10" font-weight="700" fill="#8b91b8">旧主（10.0.0.1）修好后</text>
+  <text x="80" y="997" font-size="9" fill="#5d6390">降级为从库，重新加入集群</text>
+
+  <!-- 结果行 -->
+  <text x="450" y="1052" text-anchor="middle" font-size="10.5" fill="#8b91b8"><tspan fill="#7fe3b0" font-weight="600">全程 &lt;30 秒</tspan>：写入恢复、应用无感；最多丢「机器彻底报废拿不回的 binlog」</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>大白话版（双 11 零点，master 断电了）</h2>
+    <ul>
+      <li><span class="o">① 平时</span>：一主（10.0.0.1）两从（.2 / .3），master 每写一笔就通过 binlog 同步给从库；MHA Manager 像哨兵，每 3 秒 ping 一次主库；还可加一台 <strong>Binlog Server</strong>（可选）伪装成从库，把 binlog 实时再备份一份</li>
+      <li><span class="r">② 主挂了</span>：零点 master 断电——Manager 连 ping 3 次（约 9 秒）都不通，判定死亡，<strong>自动</strong>开始 failover（故障切换）</li>
+      <li><span class="p">③ 选主 + 补数据</span>：slave1 复制到 pos 4800、slave2 才 4500 → <strong>数据最新的 slave1 上位</strong>；slave2 先向 slave1 要来 4500→4800 的差异日志补齐；旧主若还能 SSH 登录，连 4800→5000 的 binlog 也抢救回来</li>
+      <li><span class="g">④ 新主接管</span>：slave1 升级为新 master 打开写入，slave2 改指新主，VIP 漂移到新主——全程 30 秒内，应用无感；旧主修好后降级为从库重新加入</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>关键认知</h2>
+    <ul>
+      <li><strong>MHA 的灵魂是「补数据」不是「选主」</strong>：选出最新的从库谁都会，难的是把差异补齐——从库间互比 relay log + SSH 抢救旧主残存 binlog，所以 MHA <strong>几乎不丢数据</strong>，这是它区别于「裸切换」的核心卖点</li>
+      <li><span class="p">选主规则</span>：默认比对各从库复制位置（master_log_pos），最新者优先；可用 <code>candidate_master=1</code> 指定优先候选（比如硬件更强的那台）</li>
+      <li><span class="r">常见误会①</span>：MHA ≠ 读写分离 / 负载均衡——它只管「主库挂了自动切」，不管分流；读写分离是 ProxySQL / 中间件的活，两者常搭配出现但不是一回事</li>
+      <li><span class="r">常见误会②</span>：MHA 不是多主架构——同一时刻只有一个可写主；防脑裂只靠「SSH 探测旧主 + 切换脚本」，极端网络分区下仍可能双主，这也是 MGR 后来居上的原因</li>
+      <li><span class="b">可选组件 Binlog Server</span>：一台独立机器伪装成 slave，用 mysqlbinlog 流式实时拉取 master 的 binlog 存档（<strong>只存原始日志、不应用</strong>，相当于 binlog 仓库）——旧主彻底报废时，缺失的 binlog 也能从它那里补齐；不配它时，抢救数据的前提是「旧主还能 SSH」</li>
+      <li><span class="b">Manager 是单点</span>：但它挂了只是失去「自动切换」能力，<strong>业务读写完全不受影响</strong>（可双 Manager 或 Keepalived 兜底）</li>
+      <li><span class="o">现状</span>：MHA 已停更多年（Perl 编写），新系统多用 <strong>MGR</strong>（组复制，Paxos 多数派、自带防脑裂）或 <strong>Orchestrator</strong>；但「binlog 补齐」的思想是相通的，MHA 仍是理解高可用切换的最佳样本</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>高可用方案对比</h2>
+    <table>
+      <tr><th>方案</th><th>切换速度</th><th>数据安全</th><th>特点</th></tr>
+      <tr>
+        <td><strong>MHA</strong>（本方案）</td>
+        <td>&lt;30 秒</td>
+        <td>几乎零丢失（补 binlog）</td>
+        <td>成熟经典；Perl 编写、停更多年、防脑裂弱</td>
+      </tr>
+      <tr>
+        <td>MGR 组复制</td>
+        <td>秒级</td>
+        <td>多数派强一致</td>
+        <td>MySQL 官方方案；要求 InnoDB + GTID，网络开销略大</td>
+      </tr>
+      <tr>
+        <td>Orchestrator</td>
+        <td>~10 秒</td>
+        <td>依赖复制拓扑</td>
+        <td>拓扑可视化好；本身不补数据，常搭配 GTID + 半同步复制</td>
+      </tr>
+      <tr>
+        <td>手动切换</td>
+        <td>分钟 ~ 小时</td>
+        <td>看 DBA 水平和手速</td>
+        <td>半夜被叫起来的噩梦；只适合极小规模</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：MHA = Manager 哨兵 + 各机 Node——主库挂了自动选出<strong>数据最新</strong>的从库当新主，靠互比 relay log 和 SSH 抢救旧主 binlog 把差异补齐（几乎零丢数据），再让其他从库改指新主、VIP 漂移，全程 &lt;30 秒。</div>
+
+  <p class="nav"><a href="../架构/Canal-MQ异构数据同步/Canal-MQ异构数据同步.html">← Canal + MQ 异构数据同步</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
