@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HMAC-SHA256 签名验证 · 动画图解</title>
+<style>
+  :root {
+    --bg: #0b1029; --card: #171b3a; --border: #2a3060;
+    --text: #e7eaf6; --muted: #8b91b8;
+    --orange: #f6a04d; --blue: #5b8def; --purple: #a06ee1; --green: #3ecf8e; --red: #e06a6a; --pink: #e06a9d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(124, 58, 237, 0.22), transparent 70%),
+      radial-gradient(800px 500px at 85% 110%, rgba(59, 130, 246, 0.14), transparent 70%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 48px 24px 72px; }
+  header { text-align: center; margin-bottom: 26px; }
+  h1 {
+    font-size: 30px; margin: 0 0 10px; letter-spacing: 1px;
+    background: linear-gradient(90deg, #fff, #b9c4ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 auto; max-width: 860px; }
+  .sub .no-o { color: var(--orange); font-weight: 700; }
+  .sub .no-g { color: var(--green); font-weight: 700; }
+  .sub .no-p { color: var(--purple); font-weight: 700; }
+  .sub .no-f { color: var(--pink); font-weight: 700; }
+  .fig { display: flex; justify-content: center; }
+  .fig svg { max-width: 100%; height: auto; }
+  section {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 28px; margin-top: 26px;
+  }
+  h2 { font-size: 17px; margin: 0 0 10px; color: #fff; }
+  h2 .no { color: var(--purple); margin-right: 8px; }
+  ul { margin: 0; padding-left: 18px; color: #c3c9e8; font-size: 13.5px; line-height: 2; }
+  li strong { color: #e9ecff; }
+  li .o { color: var(--orange); font-weight: 600; }
+  li .g { color: var(--green); font-weight: 600; }
+  li .p { color: var(--purple); font-weight: 600; }
+  li .r { color: var(--red); font-weight: 600; }
+  li .b { color: var(--blue); font-weight: 600; }
+  li .f { color: var(--pink); font-weight: 600; }
+  code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #cdd5ff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); color: #c3c9e8; line-height: 1.7; }
+  th { color: #fff; font-weight: 600; background: rgba(255,255,255,.03); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { color: #e9ecff; font-weight: 600; white-space: nowrap; }
+  .tip {
+    margin-top: 26px; font-size: 13px; line-height: 1.7;
+    padding: 12px 16px; border-radius: 10px;
+    background: rgba(246, 160, 77, 0.08); color: #f2b57c; border: 1px solid rgba(246, 160, 77, 0.3);
+  }
+  .nav { margin-top: 28px; text-align: center; font-size: 13px; }
+  .nav a { color: #93b4f5; text-decoration: none; margin: 0 10px; }
+  .nav a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; color: #5d6390; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>HMAC-SHA256 签名验证（主站 → Loyalty）</h1>
+    <p class="sub">
+      密钥永不上网，只传签名——
+      <span class="no-o">body + Client Secret 算出签名</span> → <span class="no-p">签名放请求头，随 body 明文发出</span> →
+      <span class="no-f">收方用同一把密钥复算一遍</span> → <span class="no-g">一致放行 / 不一致 401</span>。
+    </p>
+  </header>
+
+  <div class="fig">
+  <svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="mm-arrO" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#f6a04d"/></marker>
+    <marker id="mm-arrB" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#5b8def"/></marker>
+    <marker id="mm-arrP" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#a06ee1"/></marker>
+    <marker id="mm-arrG" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#3ecf8e"/></marker>
+    <marker id="mm-arrR" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="#e06a6a"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1200" rx="16" fill="#0f1433" stroke="#2a3060"/>
+
+  <text x="450" y="38" text-anchor="middle" font-size="11" letter-spacing="2" fill="#8b91b8">流水线：body + Secret → HMAC 盖章 → 签名随请求发出 → 收方复算 → 一致放行 / 不一致 401</text>
+  <line x1="96" y1="34" x2="156" y2="34" stroke="#343b6e"/>
+  <line x1="744" y1="34" x2="804" y2="34" stroke="#343b6e"/>
+
+  <!-- ===== ① 算签名（橙）===== -->
+  <circle cx="70" cy="76" r="11" fill="#a06ee1"/>
+  <text x="70" y="81" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">1</text>
+  <text x="90" y="81" font-size="11.5" letter-spacing="1"><tspan fill="#f6a04d" font-weight="700">算签名 HMAC</tspan><tspan fill="#8b91b8">：body 原始字节 + 密钥，揉出 32 字节指纹，再 Base64 成字符串</tspan></text>
+
+  <!-- body 卡 -->
+  <rect x="60" y="100" width="260" height="96" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="190" y="124" text-anchor="middle" font-size="10" font-weight="700" fill="#ffc069">请求 body（原始字节）</text>
+  <text x="190" y="150" text-anchor="middle" font-size="9.5" fill="#e7eaf6">{"shop_id":88001,</text>
+  <text x="190" y="168" text-anchor="middle" font-size="9.5" fill="#e7eaf6"> "event":"uninstall"}</text>
+  <text x="190" y="188" text-anchor="middle" font-size="8.5" fill="#8b91b8">星星服装店 卸载了 loyalty</text>
+
+  <!-- Secret 卡 -->
+  <rect x="60" y="208" width="260" height="68" rx="10" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="190" y="234" text-anchor="middle" font-size="10" fill="#e7eaf6">Client Secret：<tspan fill="#ffc069" font-weight="700">sk_9f3aX7…</tspan></text>
+  <text x="190" y="258" text-anchor="middle" font-size="8.5" fill="#8b91b8">双方各存一把 · 事先配好 · 永不上网</text>
+
+  <!-- body → HMAC -->
+  <path d="M 320,148 L 381,160" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="4" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 322,148 L 379,160"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#ffc069"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 322,148 L 379,160"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <!-- secret → HMAC -->
+  <path d="M 320,242 L 381,206" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="4" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.6s" begin="0.4s" repeatCount="indefinite" path="M 322,242 L 379,208"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#ffc069"><animateMotion dur="1.6s" begin="0.4s" repeatCount="indefinite" path="M 322,242 L 379,208"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- HMAC 框 -->
+  <rect x="385" y="130" width="230" height="100" rx="12" fill="#1a1f42" stroke="#f6a04d" stroke-opacity="0.55"/>
+  <text x="500" y="162" text-anchor="middle" font-size="13" font-weight="700" fill="#ffc069">HMAC-SHA256</text>
+  <text x="500" y="186" text-anchor="middle" font-size="9" fill="#c3c9e8">body 字节 + secret → 32 字节指纹</text>
+  <text x="500" y="206" text-anchor="middle" font-size="9" fill="#8b91b8">再 Base64 编码（只为塞进 Header）</text>
+
+  <!-- HMAC → 签名 -->
+  <path d="M 615,180 L 661,180" fill="none" stroke="#f6a04d" stroke-width="1.8" marker-end="url(#mm-arrO)"/>
+  <g>
+    <circle r="4" fill="#f6a04d" opacity="0.3"><animateMotion dur="1.4s" begin="0.8s" repeatCount="indefinite" path="M 617,180 L 659,180"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#ffc069"><animateMotion dur="1.4s" begin="0.8s" repeatCount="indefinite" path="M 617,180 L 659,180"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 签名卡 -->
+  <rect x="665" y="130" width="185" height="100" rx="10" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="757" y="156" text-anchor="middle" font-size="10" fill="#8b91b8">签名</text>
+  <text x="757" y="182" text-anchor="middle" font-size="11.5" font-weight="700" fill="#ffc069">dB3fk9…Qw=</text>
+  <text x="757" y="208" text-anchor="middle" font-size="8" fill="#8b91b8">body 改 1 字节 → 签名全变</text>
+
+  <!-- ===== ② 发送（紫）===== -->
+  <circle cx="70" cy="316" r="11" fill="#a06ee1"/>
+  <text x="70" y="321" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">2</text>
+  <text x="90" y="321" font-size="11.5" letter-spacing="1"><tspan fill="#c4aef5" font-weight="700">发送</tspan><tspan fill="#8b91b8">：签名塞进 X-Shoplazza-Hmac-Sha256 头，body 原文明文一起走</tspan></text>
+
+  <!-- HTTP 请求卡 -->
+  <rect x="60" y="340" width="350" height="132" rx="10" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="235" y="366" text-anchor="middle" font-size="9.5" fill="#e7eaf6">POST /webhook/app/uninstall HTTP/1.1</text>
+  <text x="235" y="390" text-anchor="middle" font-size="9.5" fill="#c4aef5">X-Shoplazza-Hmac-Sha256: dB3fk9…Qw=</text>
+  <line x1="78" y1="404" x2="392" y2="404" stroke="#343b6e"/>
+  <text x="235" y="426" text-anchor="middle" font-size="9" fill="#8b91b8">Body（明文）：</text>
+  <text x="235" y="448" text-anchor="middle" font-size="9.5" fill="#e7eaf6">{"shop_id":88001,"event":"uninstall"}</text>
+
+  <!-- 攻击者卡 -->
+  <rect x="470" y="340" width="380" height="132" rx="10" fill="#1a1f42" stroke="#e06a6a" stroke-opacity="0.55"/>
+  <text x="660" y="366" text-anchor="middle" font-size="11" font-weight="700" fill="#f09090">网络中间人 能干嘛？</text>
+  <text x="660" y="392" text-anchor="middle" font-size="9.5" fill="#c3c9e8">能看：body 是明文，全看见（88001 要卸载）</text>
+  <text x="660" y="414" text-anchor="middle" font-size="9.5" fill="#c3c9e8">能改：把 shop_id 88001 → 99002，让别人「被卸载」</text>
+  <text x="660" y="438" text-anchor="middle" font-size="9.5" fill="#f09090">但没有 Secret，改完算不出匹配的新签名 → 白改 ✗</text>
+
+  <!-- 澄清卡 -->
+  <rect x="430" y="488" width="420" height="64" rx="12" fill="#11163a" stroke="#f6a04d" stroke-opacity="0.4"/>
+  <text x="450" y="512" font-size="10.5" font-weight="700" fill="#ffc069">注意：HMAC ≠ 加密！body 全程明文</text>
+  <text x="450" y="532" font-size="9" fill="#c3c9e8">它管「谁发的 + 没改过」，不管「看不看得到」</text>
+  <text x="450" y="548" font-size="9" fill="#8b91b8">→ 要保密，靠外层再套 HTTPS</text>
+
+  <!-- 传输箭头（沿左缘下行） -->
+  <path d="M 80,472 C 45,535 38,600 56,662" fill="none" stroke="#a06ee1" stroke-width="1.8" marker-end="url(#mm-arrP)"/>
+  <text x="95" y="512" font-size="8.5" fill="#8b91b8">网络传输：</text>
+  <text x="95" y="528" font-size="8.5" fill="#8b91b8">body 明文 + 头里签名</text>
+  <g>
+    <circle r="4" fill="#a06ee1" opacity="0.3"><animateMotion dur="2.4s" begin="0s" repeatCount="indefinite" path="M 80,472 C 45,535 38,600 54,658"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="2.4s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#c4aef5"><animateMotion dur="2.4s" begin="0s" repeatCount="indefinite" path="M 80,472 C 45,535 38,600 54,658"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="2.4s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- ===== ③ 复算（蓝）===== -->
+  <circle cx="70" cy="596" r="11" fill="#a06ee1"/>
+  <text x="70" y="601" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">3</text>
+  <text x="90" y="601" font-size="11.5" letter-spacing="1"><tspan fill="#8fb3f7" font-weight="700">复算</tspan><tspan fill="#8b91b8">：收方拿同一份 body 字节 + 自己存的同一把密钥，再算一遍签名</tspan></text>
+
+  <!-- body 卡（收到） -->
+  <rect x="60" y="616" width="260" height="96" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="190" y="640" text-anchor="middle" font-size="10" font-weight="700" fill="#8fb3f7">收到的 body（原始字节）</text>
+  <text x="190" y="666" text-anchor="middle" font-size="9.5" fill="#e7eaf6">{"shop_id":88001,</text>
+  <text x="190" y="684" text-anchor="middle" font-size="9.5" fill="#e7eaf6"> "event":"uninstall"}</text>
+  <text x="190" y="704" text-anchor="middle" font-size="8.5" fill="#8b91b8">字节级照原样算，不重新序列化</text>
+
+  <!-- Secret 卡（同一把） -->
+  <rect x="60" y="724" width="260" height="68" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="190" y="750" text-anchor="middle" font-size="10" fill="#e7eaf6">同一把 Secret：<tspan fill="#8fb3f7" font-weight="700">sk_9f3aX7…</tspan></text>
+  <text x="190" y="774" text-anchor="middle" font-size="8.5" fill="#8b91b8">从 loyalty 本地配置读</text>
+
+  <!-- body → HMAC -->
+  <path d="M 320,664 L 381,676" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <g>
+    <circle r="4" fill="#5b8def" opacity="0.3"><animateMotion dur="1.6s" begin="0.2s" repeatCount="indefinite" path="M 322,664 L 379,676"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.2s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#8fb3f7"><animateMotion dur="1.6s" begin="0.2s" repeatCount="indefinite" path="M 322,664 L 379,676"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.2s" repeatCount="indefinite"/></circle>
+  </g>
+  <!-- secret → HMAC -->
+  <path d="M 320,758 L 381,722" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <g>
+    <circle r="4" fill="#5b8def" opacity="0.3"><animateMotion dur="1.6s" begin="0.6s" repeatCount="indefinite" path="M 322,758 L 379,724"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#8fb3f7"><animateMotion dur="1.6s" begin="0.6s" repeatCount="indefinite" path="M 322,758 L 379,724"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- HMAC 框 -->
+  <rect x="385" y="646" width="230" height="100" rx="12" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="500" y="678" text-anchor="middle" font-size="13" font-weight="700" fill="#8fb3f7">HMAC-SHA256</text>
+  <text x="500" y="702" text-anchor="middle" font-size="9" fill="#c3c9e8">body 字节 + secret → 32 字节指纹</text>
+  <text x="500" y="722" text-anchor="middle" font-size="9" fill="#8b91b8">再 Base64 → 得到签名 B</text>
+
+  <!-- HMAC → 签名B -->
+  <path d="M 615,696 L 661,696" fill="none" stroke="#5b8def" stroke-width="1.8" marker-end="url(#mm-arrB)"/>
+  <g>
+    <circle r="4" fill="#5b8def" opacity="0.3"><animateMotion dur="1.4s" begin="1s" repeatCount="indefinite" path="M 617,696 L 659,696"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="1s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#8fb3f7"><animateMotion dur="1.4s" begin="1s" repeatCount="indefinite" path="M 617,696 L 659,696"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.4s" begin="1s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 签名B 卡 -->
+  <rect x="665" y="646" width="185" height="100" rx="10" fill="#11163a" stroke="#5b8def" stroke-opacity="0.4"/>
+  <text x="757" y="672" text-anchor="middle" font-size="10" fill="#8b91b8">签名 B（自算）</text>
+  <text x="757" y="698" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8fb3f7">dB3fk9…Qw=</text>
+  <text x="757" y="724" text-anchor="middle" font-size="8" fill="#7fe3b0">没人动过 → 与 A 相同</text>
+
+  <!-- ===== ④ 比对（绿/红）===== -->
+  <circle cx="70" cy="832" r="11" fill="#a06ee1"/>
+  <text x="70" y="837" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">4</text>
+  <text x="90" y="837" font-size="11.5" letter-spacing="1"><tspan fill="#7fe3b0" font-weight="700">比对</tspan><tspan fill="#8b91b8">：请求头签名 vs 自算签名，逐字节相等才放行</tspan></text>
+
+  <!-- 签名B → 小卡B -->
+  <path d="M 757,746 C 745,800 700,830 660,868" fill="none" stroke="#5b8def" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#mm-arrB)" opacity="0.8"/>
+
+  <!-- 小卡A -->
+  <rect x="130" y="872" width="240" height="54" rx="10" fill="#1a1f42" stroke="#a06ee1" stroke-opacity="0.55"/>
+  <text x="250" y="894" text-anchor="middle" font-size="9" fill="#8b91b8">签名 A · 取自请求头</text>
+  <text x="250" y="914" text-anchor="middle" font-size="11" font-weight="700" fill="#c4aef5">dB3fk9…Qw=</text>
+
+  <!-- 小卡B -->
+  <rect x="530" y="872" width="240" height="54" rx="10" fill="#1a1f42" stroke="#5b8def" stroke-opacity="0.55"/>
+  <text x="650" y="894" text-anchor="middle" font-size="9" fill="#8b91b8">签名 B · 刚算出来的</text>
+  <text x="650" y="914" text-anchor="middle" font-size="11" font-weight="700" fill="#8fb3f7">dB3fk9…Qw=</text>
+
+  <!-- A/B → 比对框 -->
+  <path d="M 250,928 C 290,950 330,958 388,966" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#mm-arrG)"/>
+  <g>
+    <circle r="4" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 250,928 C 290,950 330,958 384,964"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#7fe3b0"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" path="M 250,928 C 290,950 330,958 384,964"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0s" repeatCount="indefinite"/></circle>
+  </g>
+  <path d="M 650,928 C 610,950 570,958 512,966" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#mm-arrG)"/>
+  <g>
+    <circle r="4" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.6s" begin="0.4s" repeatCount="indefinite" path="M 650,928 C 610,950 570,958 516,964"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#7fe3b0"><animateMotion dur="1.6s" begin="0.4s" repeatCount="indefinite" path="M 650,928 C 610,950 570,958 516,964"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.4s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- 比对框 -->
+  <rect x="330" y="962" width="240" height="56" rx="12" fill="#1a1f42" stroke="#3ecf8e" stroke-opacity="0.55"/>
+  <text x="450" y="986" text-anchor="middle" font-size="13" font-weight="700" fill="#7fe3b0">A == B ?</text>
+  <text x="450" y="1006" text-anchor="middle" font-size="9" fill="#8b91b8">逐字节比对</text>
+
+  <!-- 比对 → 绿/红 -->
+  <path d="M 390,1018 C 350,1042 300,1050 258,1054" fill="none" stroke="#3ecf8e" stroke-width="1.8" marker-end="url(#mm-arrG)"/>
+  <text x="300" y="1032" font-size="8.5" fill="#7fe3b0">一致</text>
+  <g>
+    <circle r="4" fill="#3ecf8e" opacity="0.3"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 390,1018 C 350,1042 300,1050 262,1052"/><animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+    <circle r="2" fill="#7fe3b0"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" path="M 390,1018 C 350,1042 300,1050 262,1052"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.8;1" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+  </g>
+  <path d="M 510,1018 C 550,1042 600,1050 642,1054" fill="none" stroke="#e06a6a" stroke-width="1.5" stroke-dasharray="3 3" marker-end="url(#mm-arrR)" opacity="0.85"/>
+  <text x="580" y="1032" font-size="8.5" fill="#f09090">不一致</text>
+
+  <!-- 绿卡 -->
+  <rect x="90" y="1054" width="330" height="76" rx="10" fill="#1a1f42" stroke="#3ecf8e" stroke-opacity="0.55"/>
+  <text x="255" y="1080" text-anchor="middle" font-size="11" font-weight="700" fill="#7fe3b0">✓ 一致 → 放行处理</text>
+  <text x="255" y="1102" text-anchor="middle" font-size="9" fill="#c3c9e8">持钥人发的 + body 没改过</text>
+  <text x="255" y="1120" text-anchor="middle" font-size="9" fill="#8b91b8">星星服装店 卸载 loyalty（200 OK）</text>
+
+  <!-- 红卡 -->
+  <rect x="480" y="1054" width="330" height="76" rx="10" fill="#1a1f42" stroke="#e06a6a" stroke-opacity="0.55"/>
+  <text x="645" y="1080" text-anchor="middle" font-size="11" font-weight="700" fill="#f09090">✗ 不一致 → 拒绝 401</text>
+  <text x="645" y="1102" text-anchor="middle" font-size="9" fill="#c3c9e8">假冒请求 / body 被篡改 → 穿帮</text>
+  <text x="645" y="1120" text-anchor="middle" font-size="9" fill="#8b91b8">「卸载错店铺」的脏请求进不来</text>
+
+  <!-- 结果行 -->
+  <text x="450" y="1166" text-anchor="middle" font-size="10.5" fill="#8b91b8">同一把密钥 + 同一份字节 ⇒ 同一个签名 ｜ body 改 1 个字节 ⇒ 签名天差地别（<tspan fill="#ffc069">雪崩效应</tspan>）</text>
+  </svg>
+  </div>
+
+  <section>
+    <h2><span class="no">01</span>大白话版（星星服装店卸载了 loyalty 应用）</h2>
+    <ul>
+      <li><span class="o">① 算签名</span>：主站把 body 原始字节（<code>shop_id 88001 卸载</code>）+ 事先配好的 Secret（<code>sk_9f3aX7…</code>）扔进 HMAC-SHA256，算出 32 字节「内容指纹」，Base64 编码成字符串 → 签名 <code>dB3fk9…Qw=</code></li>
+      <li><span class="p">② 发送</span>：签名放进请求头 <code>X-Shoplazza-Hmac-Sha256</code>，和 body（<strong>明文</strong>！）一起 POST 给 loyalty</li>
+      <li><span class="b">③ 复算</span>：loyalty 收到后，拿<strong>同样的 body 字节</strong> + 自己存的<strong>同一把 Secret</strong> 再算一遍 → 签名 B</li>
+      <li><span class="g">④ 比对</span>：B == 请求头里的 A？<strong>一致</strong> → 是主站发的且没改过 → 执行卸载；<strong>不一致</strong> → 401 拒绝（防止攻击者篡改 shop_id 让别的店铺「被卸载」）</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">02</span>关键认知</h2>
+    <ul>
+      <li><strong>HMAC 一次管两件事</strong>：身份认证（对方确实持有密钥）+ 完整性（body 没被动过）；<strong>不管保密</strong>——body 明文传输，保密靠外层 HTTPS</li>
+      <li><span class="r">常见误会①</span>：HMAC <strong>不是加密</strong>！签名是「印章」不是「信封」；Base64 也只是编码格式（为了塞进 Header），人人都能解码，不是安全手段</li>
+      <li><span class="r">常见误会②</span>：签名里<strong>没有 Secret、也推不出 Secret</strong>——SHA-256 单向不可逆；网络上跑的只有签名，密钥双方各自保管、永不上网，所以中间人偷到签名也没用</li>
+      <li><span class="b">为什么必须用「原始字节」</span>：body 差一个空格/换行/字段顺序，签名就完全不同——收方要拿网络上传输的原始 body 字节算，<strong>不能 JSON.parse 后重新序列化</strong>（字段顺序可能变，签名就对不上了）</li>
+      <li><span class="o">防不了重放攻击</span>：攻击者原样转发同一个合法请求，签名照样有效——生产上加 <code>timestamp + nonce</code>：超时拒收、nonce 一次性使用</li>
+      <li><span class="p">改一个字节就穿帮</span>：SHA-256 雪崩效应——shop_id 88001 改成 99002，签名天差地别；攻击者没有 Secret 算不出匹配的新签名，只能干瞪眼</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="no">03</span>HMAC（对称签名）vs RSA（非对称签名）</h2>
+    <table>
+      <tr><th></th><th>HMAC（本图）</th><th>RSA 签名</th></tr>
+      <tr>
+        <td>密钥形态</td>
+        <td>双方同一把 Secret（对称）</td>
+        <td>私钥签名、公钥验签（非对称）</td>
+      </tr>
+      <tr>
+        <td>速度</td>
+        <td>极快（一次哈希）</td>
+        <td>慢 2~3 个数量级</td>
+      </tr>
+      <tr>
+        <td>防抵赖</td>
+        <td>不能（双方都能签）</td>
+        <td>能（只有私钥持有者能签）</td>
+      </tr>
+      <tr>
+        <td>密钥分发</td>
+        <td>需事先安全渠道共享</td>
+        <td>公钥可随意公开</td>
+      </tr>
+      <tr>
+        <td>适用</td>
+        <td>内部服务间 webhook（主站 → loyalty）</td>
+        <td>对第三方开放、多方不可全信</td>
+      </tr>
+    </table>
+  </section>
+
+  <div class="tip">面试一句话：HMAC = 用共享密钥给 body「盖章」——密钥不上网、签名随请求走，收方复算比对，一次解决「谁发的 + 改没改」；但它<strong>不加密</strong>，body 是明文，保密交给 HTTPS。</div>
+
+  <p class="nav"><a href="../../架构/Canal-MQ异构数据同步/Canal-MQ异构数据同步.html">← Canal + MQ 异构数据同步</a><a href="../../mysql/分布式事务seata流程/分布式事务seata流程.html">分布式事务 Seata 流程 →</a></p>
+  <p class="footer">单文件版：HTML + SMIL 动画（无 JavaScript、无外部依赖），双击即可在浏览器中播放。</p>
+</div>
+</body>
+</html>
